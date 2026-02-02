@@ -1,0 +1,25 @@
+# Файл: backend/requirements/ml.txt
+# Основные ML библиотеки
+scikit-learn==1.3.2
+pandas==2.1.3
+numpy==1.26.2
+
+# NLP и классификация текста
+spacy==3.7.2
+# После установки скачать модель:
+# python -m spacy download ru_core_news_lg  # для русского
+# python -m spacy download en_core_web_lg    # для английского
+
+transformers==4.35.2
+sentence-transformers==2.2.2
+torch==2.1.0  # или cpu-only: torch --index-url https://download.pytorch.org/whl/cpu
+
+# Работа с OpenAI GPT
+openai==1.3.0
+tiktoken==0.5.1  # подсчет токенов
+
+# Кластеризация ошибок
+hdbscan==0.8.29
+
+# Векторизация
+scikit-learn==1.3.2

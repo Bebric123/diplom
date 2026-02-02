@@ -1,0 +1,14 @@
+# Dockerfile.backend
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Исправленный путь: backend/requirements/base.txt
+COPY backend/requirements/base.txt /app/requirements.txt
+
+RUN pip install -r requirements.txt
+
+# Копируем ВЕСЬ backend (а не весь проект)
+COPY backend /app/backend
+
+EXPOSE 8000
