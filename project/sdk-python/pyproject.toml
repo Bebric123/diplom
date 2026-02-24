@@ -1,20 +1,25 @@
-# Файл: sdk-python/pyproject.toml
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
+name = "error-monitor-sdk"
+version = "1.0.0"
+description = "SDK for centralized error monitoring platform"
+readme = "README.md"
+authors = [{ name = "Андрей", email = "swooplida@gmail.com" }]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+]
 dependencies = [
-    "httpx>=0.25.0",
-    "pydantic>=2.0.0",
-    "blinker>=1.7.0",  # для сигналов
-    "backoff>=2.2.0",  # retry логика
-    "platformdirs>=4.0.0",  # пути к файлам
+    "requests>=2.25.0",
 ]
 
-# Дополнительно для конкретных фреймворков
-[project.optional-dependencies]
-django = ["Django>=4.2.0"]
-fastapi = ["FastAPI>=0.104.0"]
-flask = ["Flask>=3.0.0"]
-celery = ["Celery>=5.3.0"]
+[project.urls]
+Homepage = "https://github.com/swoopli/monitoring-platform"
+Repository = "https://github.com/swoopli/monitoring-platform"
 
-# Dev зависимости
-[project.optional-dependencies.dev]
-test = ["pytest>=7.4.0", "pytest-asyncio>=0.21.0", "pytest-mock>=3.11.0"]
+[tool.setuptools.packages.find]
+where = ["src"]

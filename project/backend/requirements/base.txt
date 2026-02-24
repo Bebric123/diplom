@@ -2,15 +2,15 @@
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
+requests
 
 # Базы данных
-sqlalchemy==2.0.23
+sqlalchemy[asyncio]
 asyncpg==0.29.0
 alembic==1.12.1
 psycopg2-binary==2.9.9
 
 # Redis и очереди
-redis==5.0.1
 celery==5.3.4
 flower==2.0.1  # для мониторинга Celery
 
@@ -27,3 +27,5 @@ cryptography==41.0.7
 
 
 aiogram>=3.0.0
+redis
+celery[redis]
