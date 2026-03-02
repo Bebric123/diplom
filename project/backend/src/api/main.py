@@ -3,9 +3,16 @@ from sqlalchemy.orm import Session
 from src.core.models import Event, EventContext, EventUrl, EventError, Platform
 from src.core.database import get_db
 from pydantic import BaseModel
+import logging  
 from typing import Optional, Dict, Any
+from src.core.config import get_settings
+
 
 app = FastAPI()
+logger = logging.getLogger("collector")
+
+settings = get_settings()
+logger.info(f"✅ REDIS_URL from settings: {settings.redis_url}")
 
 def get_platform_id(db: Session, platform_name: str) -> str:
     """Получает ID платформы по имени. Создаёт, если не существует."""
@@ -32,10 +39,10 @@ async def track_event(event_data: EventCreate, db: Session = Depends(get_db)):
             project_id=event_data.project_id,
             action=event_data.action,
             timestamp=event_data.timestamp,
-            metadata_=event_data.metadata
+            metadata_=event_data.meta  # ← сохраняем как есть
         )
         db.add(event)
-        db.flush()  # Получаем event.id
+        db.flush()
 
         # 2. Сохраняем контекст (4НФ)
         if "platform" in event_data.context:
@@ -50,35 +57,36 @@ async def track_event(event_data: EventCreate, db: Session = Depends(get_db)):
             db.add(ctx)
 
         # 3. Сохраняем URL
-        if "page_url" in event_data.meta:
+        if "page_url" in event_data.meta:  # ← проверяем в meta
             url = EventUrl(
                 event_id=event.id,
-                page_url=event_data.metadata.get("page_url"),
-                page_path=event_data.metadata.get("page_path"),
-                domain=event_data.metadata.get("domain")
+                page_url=event_data.meta.get("page_url"),      # ← meta, не metadata!
+                page_path=event_data.meta.get("page_path"),
+                domain=event_data.meta.get("domain")
             )
             db.add(url)
 
         # 4. Сохраняем ошибку
-        if "error_message" in event_data.meta:
+        if "error_message" in event_data.meta:  # ← проверяем в meta
             err = EventError(
                 event_id=event.id,
-                error_message=event_data.metadata.get("error_message"),
-                error_stack=event_data.metadata.get("error_stack"),
-                error_line=event_data.metadata.get("error_line"),
-                error_column=event_data.metadata.get("error_column"),
-                error_file=event_data.metadata.get("error_file")
+                error_message=event_data.meta.get("error_message"),  # ← meta!
+                error_stack=event_data.meta.get("error_stack"),
+                error_line=event_data.meta.get("error_line"),
+                error_column=event_data.meta.get("error_column"),
+                error_file=event_data.meta.get("error_file")
             )
             db.add(err)
 
         db.commit()
         
         # 5. Ставим задачу в Celery
-        from workers.tasks import process_event
-        process_event.delay(str(event.id))
+        from src.workers.celery_app import celery_app
+        celery_app.send_task('src.workers.tasks.process_event', args=[str(event.id)])
 
         return {"id": event.id}
     
     except Exception as e:
         db.rollback()
+        logger.exception("Ошибка при обработке события")
         raise HTTPException(status_code=500, detail=str(e))

@@ -6,7 +6,7 @@ from sqlalchemy.pool import QueuePool
 import os
 
 # Читаем URL из .env
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/Monitoring")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@db:5432/Monitoring")
 
 # Синхронный движок (для Celery и большинства операций)
 engine = create_engine(

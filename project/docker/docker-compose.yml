@@ -1,4 +1,5 @@
-version: '3'
+version: '3.8'  # ← рекомендуется использовать 3.8+
+
 services:
   db:
     image: postgres:15
@@ -8,39 +9,59 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql  # для расширений
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
 
   backend:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
+    ports:
+      - "8000:8000"
     depends_on:
-      - db
-      - redis
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres:postgres@localhost:5432/Monitoring
+      redis:
+        condition: service_healthy  # ← ЖДЁМ ГОТОВНОСТЬ
+      db:
+        condition: service_started
     env_file:
       - .env
-    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000  
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+
   worker:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_started
+    restart: on-failure
     env_file:
       - .env
-    working_dir: /app          # ← ДОБАВЬТЕ ЭТУ СТРОКУ
+    working_dir: /app
     command: celery -A src.workers.celery_app.celery_app worker --loglevel=info
+
+  bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
     depends_on:
-      - db
       - redis
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres:postgres@localhost:5432/Monitoring
+      - db
+    env_file:
+      - .env
+    command: python -m src.services.telegram_bot
+    restart: on-failure
 
 volumes:
   postgres_data:

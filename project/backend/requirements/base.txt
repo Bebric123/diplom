@@ -11,7 +11,8 @@ alembic==1.12.1
 psycopg2-binary==2.9.9
 
 # Redis и очереди
-celery==5.3.4
+celery[redis]
+redis
 flower==2.0.1  # для мониторинга Celery
 
 # Валидация данных
@@ -27,5 +28,10 @@ cryptography==41.0.7
 
 
 aiogram>=3.0.0
-redis
-celery[redis]
+
+requests>=2.25.0
+django>=3.2
+fastapi>=0.68.0
+uvicorn>=0.15.0
+starlette>=0.14.0
+flask>=2.0.0

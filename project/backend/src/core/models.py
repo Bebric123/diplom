@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import JSONB, INET
 from sqlalchemy.sql import func
 from .database import Base
 import uuid
+from sqlalchemy.orm import relationship 
 
 # --- Основные таблицы ---
 class Project(Base):
@@ -43,6 +44,8 @@ class Platform(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, unique=True, nullable=False)
 
+    contexts = relationship("EventContext", back_populates="platform")
+
 class SeverityLevel(Base):
     __tablename__ = "severity_levels"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -71,6 +74,14 @@ class Event(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    context = relationship("EventContext", back_populates="event", uselist=False, cascade="all, delete-orphan")
+    
+    # Связь с URL (один-к-одному)
+    url = relationship("EventUrl", back_populates="event", uselist=False, cascade="all, delete-orphan")
+    
+    # Связь с ошибкой (один-к-одному)
+    error = relationship("EventError", back_populates="event", uselist=False, cascade="all, delete-orphan")
+
 # --- 4НФ: вынесенные группы ---
 class EventContext(Base):
     __tablename__ = "event_contexts"
@@ -81,12 +92,17 @@ class EventContext(Base):
     browser_family = Column(String)
     browser_version = Column(String)
 
+    event = relationship("Event", back_populates="context")
+    platform = relationship("Platform")
+
 class EventUrl(Base):
     __tablename__ = "event_urls"
     event_id = Column(UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), primary_key=True)
     page_url = Column(String)
     page_path = Column(String)
     domain = Column(String)
+
+    event = relationship("Event", back_populates="url")
 
 class EventError(Base):
     __tablename__ = "event_errors"
@@ -96,6 +112,8 @@ class EventError(Base):
     error_line = Column(Integer)
     error_column = Column(Integer)
     error_file = Column(String)
+
+    event = relationship("Event", back_populates="error")
 
 # --- Группы ошибок ---
 class ErrorGroup(Base):
@@ -150,3 +168,34 @@ class ClassificationCache(Base):
     used_count = Column(Integer, default=1)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+class ErrorTask(Base):
+    __tablename__ = "error_tasks"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    event_id = Column(UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
+    error_group_id = Column(UUID(as_uuid=True), ForeignKey("error_groups.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    
+    # Статусы задачи
+    is_acknowledged = Column(Boolean, default=False)  # Нажата кнопка "Начать работу"
+    is_resolved = Column(Boolean, default=False)      # Нажата кнопка "Решено"
+    
+    # Временные метки для статистики
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Троттлинг
+    last_notification_sent_at = Column(DateTime(timezone=True), nullable=True)
+    notification_count = Column(Integer, default=0)
+    last_severity = Column(String, nullable=True) 
+    
+    # Метаданные для обновления сообщения в ТГ
+    telegram_message_id = Column(Integer, nullable=True)
+    telegram_chat_id = Column(String, nullable=True)
+    
+    # Связи
+    event = relationship("Event", backref="tasks")
+    error_group = relationship("ErrorGroup", backref="tasks")
+    project = relationship("Project", backref="tasks")
