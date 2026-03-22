@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 import logging  
 from typing import Optional, Dict, Any, List
 from src.core.config import get_settings
+import uuid
 
 
 app = FastAPI()
@@ -119,13 +120,13 @@ async def upload_log(log_data: LogFileCreate, db: Session = Depends(get_db)):
     """
     try:
         # Проверяем проект
-        project = db.query(Project).filter(Project.id == log_data.project_id).first()
+        project = db.query(Project).filter(Project.id == uuid.UUID(log_data.project_id)).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
         # Сохраняем лог в БД
         log_file = LogFile(
-            project_id=log_data.project_id,
+            project_id=uuid.UUID(log_data.project_id),
             filename=log_data.filename,
             content=log_data.content,
             lines_sent=log_data.lines_sent,
@@ -133,7 +134,7 @@ async def upload_log(log_data: LogFileCreate, db: Session = Depends(get_db)):
             server_name=log_data.server_name,
             service_name=log_data.service_name,
             environment=log_data.environment,
-            error_group_id=log_data.error_group_id,
+            error_group_id=uuid.UUID(log_data.error_group_id) if log_data.error_group_id else None,
             file_size=len(log_data.content.encode('utf-8')),
             file_path=f"/logs/{log_data.project_id}/{log_data.filename}"
         )
@@ -143,15 +144,122 @@ async def upload_log(log_data: LogFileCreate, db: Session = Depends(get_db)):
         db.refresh(log_file)
         
         # Отправляем в Celery для анализа
-        from src.workers.tasks import process_log_file
-        process_log_file.delay(str(log_file.id))
+        try:
+            from src.workers.tasks import process_log_file
+            process_log_file.delay(str(log_file.id))
+            logger.info(f"✅ Log {log_file.id} sent to Celery")
+        except Exception as celery_error:
+            # Если Celery недоступен, обрабатываем синхронно
+            logger.warning(f"⚠️ Celery not available: {celery_error}, processing synchronously")
+            
+            # Используем асинхронную версию отправки, а не синхронную обёртку
+            await process_log_sync(log_file, db)
         
         return {"id": str(log_file.id), "message": "Log file received successfully"}
         
     except Exception as e:
         db.rollback()
         logger.error(f"Error uploading log file: {e}")
+        logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
+
+# Добавьте асинхронную функцию для обработки лога
+async def process_log_sync(log_file: LogFile, db: Session):
+    """Асинхронная обработка лога (без Celery)"""
+    import hashlib
+    from datetime import datetime
+    from src.core.models import ErrorGroup, Platform
+    from src.services.notifier import send_telegram_message_async  # Импортируем асинхронную версию
+    
+    # Анализируем содержимое лога
+    content = log_file.content
+    lines = content.split('\n')
+    
+    errors = []
+    warnings = []
+    for line in lines:
+        line_lower = line.lower()
+        if 'error' in line_lower or 'exception' in line_lower or 'critical' in line_lower:
+            errors.append(line)
+        elif 'warn' in line_lower or 'warning' in line_lower:
+            warnings.append(line)
+    
+    if errors:
+        error_text = '\n'.join(errors[:5])
+        group_hash = hashlib.sha256(
+            f"{log_file.filename}{error_text}".encode()
+        ).hexdigest()
+        
+        error_group = db.query(ErrorGroup).filter(
+            ErrorGroup.project_id == log_file.project_id,
+            ErrorGroup.group_hash == group_hash
+        ).first()
+        
+        if not error_group:
+            # Получаем или создаём platform
+            platform_name = log_file.service_name or "unknown"
+            platform = db.query(Platform).filter(Platform.name == platform_name).first()
+            if not platform:
+                platform = Platform(name=platform_name)
+                db.add(platform)
+                db.flush()
+            
+            error_group = ErrorGroup(
+                project_id=log_file.project_id,
+                group_hash=group_hash,
+                title=f"Log errors in {log_file.filename}",
+                platform_id=platform.id,
+                occurrence_count=len(errors),
+                affected_users_count=1
+            )
+            db.add(error_group)
+            db.flush()
+            logger.info(f"✅ Created new error group: {error_group.id}")
+        else:
+            error_group.occurrence_count += len(errors)
+            db.flush()
+            logger.info(f"📊 Updated error group: {error_group.id}")
+        
+        log_file.error_group_id = error_group.id
+        db.commit()
+        
+        error_preview = '\n'.join(errors[:3])
+        
+        # Используем асинхронную отправку
+        await send_telegram_message_async(
+            event={
+                "title": f"❌ Ошибки в логе: {log_file.filename}",
+                "severity": "средняя",
+                "criticality": "требует внимания",
+                "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
+                "page_url": f"/logs/{log_file.id}",
+                "user_id": "system",
+                "action": "log_analysis",
+                "context": {
+                    "platform": "backend",
+                    "language": "unknown",
+                    "os_family": log_file.server_name or "unknown",
+                    "browser_family": "server"
+                },
+                "meta": {
+                    "filename": log_file.filename,
+                    "errors_count": len(errors),
+                    "warnings_count": len(warnings),
+                    "lines_sent": log_file.lines_sent,
+                    "total_lines": log_file.total_lines,
+                    "environment": log_file.environment,
+                    "server": log_file.server_name,
+                    "service": log_file.service_name,
+                    "first_errors": error_preview,
+                    "log_id": str(log_file.id)
+                }
+            },
+            error_group_id=error_group.id  # ← Второй параметр!
+        )
+        
+        logger.info(f"✅ Log {log_file.id} processed synchronously, notification sent")
+    else:
+        logger.info(f"ℹ️ No errors found in log {log_file.id}")
 
 @app.get("/logs/{log_id}")
 async def get_log(log_id: str, db: Session = Depends(get_db)):

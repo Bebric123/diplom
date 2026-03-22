@@ -9,6 +9,9 @@ import asyncio
 import uuid
 import logging
 import hashlib
+import datetime
+import traceback
+
 
 # Настройка логгера
 logger = logging.getLogger("tasks")
@@ -34,11 +37,13 @@ def load_reference_data():
 load_reference_data()
 
 def get_or_create_platform(db: Session, name: str) -> uuid.UUID:
-    platform = db.execute(select(Platform).where(Platform.name == name)).scalar_one_or_none()
+    """Получает или создаёт платформу"""
+    platform = db.query(Platform).filter(Platform.name == name).first()
     if not platform:
         platform = Platform(name=name)
         db.add(platform)
         db.flush()
+        logger.info(f"✅ Created new platform: {name}")
     return platform.id
 
 def normalize_severity(severity_str: str) -> str:
@@ -317,6 +322,8 @@ def process_log_file(self, log_id: str):
         if not log_file:
             raise ValueError(f"Log file {log_id} not found")
         
+        logger.info(f"📄 Processing log file {log_id}: {log_file.filename}")
+        
         # Анализируем содержимое лога
         content = log_file.content
         lines = content.split('\n')
@@ -325,15 +332,18 @@ def process_log_file(self, log_id: str):
         errors = []
         warnings = []
         for line in lines:
-            if 'ERROR' in line or 'Exception' in line:
+            line_lower = line.lower()
+            if 'error' in line_lower or 'exception' in line_lower or 'critical' in line_lower:
                 errors.append(line)
-            elif 'WARN' in line:
+            elif 'warn' in line_lower or 'warning' in line_lower:
                 warnings.append(line)
+        
+        logger.info(f"📊 Log analysis: {len(errors)} errors, {len(warnings)} warnings")
         
         # Если есть ошибки, создаем группу
         if errors:
             # Создаем хеш для группы
-            error_text = '\n'.join(errors)
+            error_text = '\n'.join(errors[:5])  # Берём первые 5 ошибок для хеша
             group_hash = hashlib.sha256(
                 f"{log_file.filename}{error_text}".encode()
             ).hexdigest()
@@ -345,55 +355,124 @@ def process_log_file(self, log_id: str):
             ).first()
             
             if not error_group:
+                # Получаем или создаём platform
+                platform_name = log_file.service_name or "unknown"
+                platform = db.query(Platform).filter(Platform.name == platform_name).first()
+                if not platform:
+                    platform = Platform(name=platform_name)
+                    db.add(platform)
+                    db.flush()
+                    logger.info(f"✅ Created new platform: {platform_name}")
+                
                 error_group = ErrorGroup(
                     project_id=log_file.project_id,
                     group_hash=group_hash,
-                    title=f"Log errors in {log_file.filename}",
-                    platform_id=get_or_create_platform(db, log_file.service_name or "unknown"),
+                    title=f"📄 Log errors in {log_file.filename}",
+                    platform_id=platform.id,
                     occurrence_count=len(errors),
-                    affected_users_count=1
+                    affected_users_count=1,
+                    first_seen_at=datetime.utcnow(),
+                    last_seen_at=datetime.utcnow()
                 )
                 db.add(error_group)
                 db.flush()
+                logger.info(f"✅ Created new error group for log: {error_group.id}")
+            else:
+                # Обновляем существующую группу
+                error_group.occurrence_count += len(errors)
+                error_group.last_seen_at = datetime.utcnow()
+                db.flush()
+                logger.info(f"📊 Updated error group {error_group.id}, occurrence count: {error_group.occurrence_count}")
             
             # Привязываем лог к группе
             log_file.error_group_id = error_group.id
             db.commit()
             
-            # Отправляем уведомление
-            send_telegram_message_sync({
-                "title": f"❌ Ошибки в логе {log_file.filename}",
-                "severity": "средняя",
-                "criticality": "требует внимания",
-                "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
-                "page_url": f"/logs/{log_id}",
-                "group_id": str(error_group.id),
-                "user_id": "system",
-                "action": "log_analysis",
-                "context": {
-                    "platform": "backend",
-                    "language": "unknown",
-                    "os_family": log_file.server_name or "unknown",
-                    "browser_family": "server"
-                },
-                "meta": {
-                    "filename": log_file.filename,
-                    "errors_count": len(errors),
-                    "warnings_count": len(warnings),
-                    "lines_sent": log_file.lines_sent,
-                    "total_lines": log_file.total_lines,
-                    "environment": log_file.environment,
-                    "server": log_file.server_name,
-                    "service": log_file.service_name,
-                    "first_errors": errors[:5]  # Первые 5 ошибок
-                }
-            })
+            # Формируем предпросмотр ошибок
+            error_preview = '\n'.join(errors[:3]) if errors else "No errors"
+            
+            # Отправляем уведомление (исправленный вызов)
+            from src.services.notifier import send_telegram_message_sync
+            
+            # Важно: send_telegram_message_sync ожидает два параметра
+            # Проверьте, какая версия у вас в notifier.py
+            try:
+                # Пробуем с двумя параметрами
+                send_telegram_message_sync(
+                    event={
+                        "title": f"❌ Ошибки в логе: {log_file.filename}",
+                        "severity": "средняя",
+                        "criticality": "требует внимания",
+                        "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
+                        "page_url": f"/logs/{log_id}",
+                        "user_id": "system",
+                        "action": "log_analysis",
+                        "context": {
+                            "platform": "backend",
+                            "language": "unknown",
+                            "os_family": log_file.server_name or "unknown",
+                            "browser_family": "server"
+                        },
+                        "meta": {
+                            "filename": log_file.filename,
+                            "errors_count": len(errors),
+                            "warnings_count": len(warnings),
+                            "lines_sent": log_file.lines_sent,
+                            "total_lines": log_file.total_lines,
+                            "environment": log_file.environment,
+                            "server": log_file.server_name,
+                            "service": log_file.service_name,
+                            "first_errors": error_preview,
+                            "log_id": str(log_file.id)
+                        }
+                    },
+                    error_group_id=error_group.id
+                )
+            except TypeError:
+                # Если функция принимает один параметр
+                send_telegram_message_sync({
+                    "title": f"❌ Ошибки в логе: {log_file.filename}",
+                    "severity": "средняя",
+                    "criticality": "требует внимания",
+                    "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
+                    "page_url": f"/logs/{log_id}",
+                    "group_id": str(error_group.id),
+                    "user_id": "system",
+                    "action": "log_analysis",
+                    "context": {
+                        "platform": "backend",
+                        "language": "unknown",
+                        "os_family": log_file.server_name or "unknown",
+                        "browser_family": "server"
+                    },
+                    "meta": {
+                        "filename": log_file.filename,
+                        "errors_count": len(errors),
+                        "warnings_count": len(warnings),
+                        "lines_sent": log_file.lines_sent,
+                        "total_lines": log_file.total_lines,
+                        "environment": log_file.environment,
+                        "server": log_file.server_name,
+                        "service": log_file.service_name,
+                        "first_errors": error_preview,
+                        "log_id": str(log_file.id)
+                    }
+                })
+            
+            logger.info(f"✅ Telegram notification sent for log {log_id}")
+        else:
+            logger.info(f"ℹ️ No errors found in log {log_id}")
         
-        logger.info(f"✅ Log file {log_id} processed: {len(errors)} errors, {len(warnings)} warnings")
+        logger.info(f"✅ Log file {log_id} processed successfully")
         
     except Exception as exc:
-        logger.error(f"Error processing log file {log_id}: {exc}")
+        db.rollback()
+        logger.error(f"❌ Error processing log file {log_id}: {exc}")
+        logger.error(traceback.format_exc())
         if self.request.retries < self.max_retries:
+            logger.info(f"🔄 Retrying log {log_id}, attempt {self.request.retries + 1}")
             raise self.retry(exc=exc, countdown=2 ** self.request.retries)
+        else:
+            logger.error(f"💀 Failed to process log file {log_id} after retries")
     finally:
         db.close()

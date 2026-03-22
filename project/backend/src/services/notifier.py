@@ -284,6 +284,7 @@ async def send_telegram_message_async(event: dict, error_group_id: uuid.UUID, ta
         # Получаем статус задачи, если есть task_id
         status_emoji = "⏳"
         status_text = "Ожидает"
+        task_display_id = "—"
         
         if task_id:
             db = Session(engine)
