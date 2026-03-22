@@ -1,7 +1,7 @@
 from celery import shared_task
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import select, create_engine, func  
-from src.core.models import Event, ErrorGroup, SeverityLevel, CriticalityLevel, Platform, EventContext
+from src.core.models import Event, ErrorGroup, SeverityLevel, CriticalityLevel, Platform, EventContext, LogFile
 from src.services.classifier import analyze_error_with_gigachat
 from src.services.notifier import create_error_task, send_telegram_message_sync, update_task_notification, should_send_notification, TELEGRAM_CHAT_ID
 
@@ -176,7 +176,15 @@ def process_event(self, event_id: str):
             stack = event.metadata_.get("stack_trace", "")
         
         # Создаём хеш для группы ошибок
-        group_hash = hashlib.sha256(f"{stack}{page_url}".encode()).hexdigest()
+        error_type = "unknown"
+        if event.error and event.error.error_message:
+            error_type = event.error.error_message.split('\n')[0][:100]  # Первая строка ошибки
+        elif event.metadata_:
+            error_type = event.metadata_.get("error_message", "unknown")
+
+        group_hash = hashlib.sha256(
+            f"{error_type}{stack}{page_url}".encode()
+        ).hexdigest()
 
         # 10. Ищем существующую группу ошибок
         error_group = db.execute(
@@ -295,5 +303,97 @@ def process_event(self, event_id: str):
             raise self.retry(exc=exc, countdown=2 ** self.request.retries)
         else:
             logger.error(f"Failed to process event {event_id} after retries: {exc}")
+    finally:
+        db.close()
+
+@shared_task(bind=True, max_retries=3)
+def process_log_file(self, log_id: str):
+    """
+    Обрабатывает загруженный лог-файл
+    """
+    db = Session(engine)
+    try:
+        log_file = db.query(LogFile).filter(LogFile.id == uuid.UUID(log_id)).first()
+        if not log_file:
+            raise ValueError(f"Log file {log_id} not found")
+        
+        # Анализируем содержимое лога
+        content = log_file.content
+        lines = content.split('\n')
+        
+        # Ищем ошибки/предупреждения
+        errors = []
+        warnings = []
+        for line in lines:
+            if 'ERROR' in line or 'Exception' in line:
+                errors.append(line)
+            elif 'WARN' in line:
+                warnings.append(line)
+        
+        # Если есть ошибки, создаем группу
+        if errors:
+            # Создаем хеш для группы
+            error_text = '\n'.join(errors)
+            group_hash = hashlib.sha256(
+                f"{log_file.filename}{error_text}".encode()
+            ).hexdigest()
+            
+            # Ищем существующую группу
+            error_group = db.query(ErrorGroup).filter(
+                ErrorGroup.project_id == log_file.project_id,
+                ErrorGroup.group_hash == group_hash
+            ).first()
+            
+            if not error_group:
+                error_group = ErrorGroup(
+                    project_id=log_file.project_id,
+                    group_hash=group_hash,
+                    title=f"Log errors in {log_file.filename}",
+                    platform_id=get_or_create_platform(db, log_file.service_name or "unknown"),
+                    occurrence_count=len(errors),
+                    affected_users_count=1
+                )
+                db.add(error_group)
+                db.flush()
+            
+            # Привязываем лог к группе
+            log_file.error_group_id = error_group.id
+            db.commit()
+            
+            # Отправляем уведомление
+            send_telegram_message_sync({
+                "title": f"❌ Ошибки в логе {log_file.filename}",
+                "severity": "средняя",
+                "criticality": "требует внимания",
+                "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
+                "page_url": f"/logs/{log_id}",
+                "group_id": str(error_group.id),
+                "user_id": "system",
+                "action": "log_analysis",
+                "context": {
+                    "platform": "backend",
+                    "language": "unknown",
+                    "os_family": log_file.server_name or "unknown",
+                    "browser_family": "server"
+                },
+                "meta": {
+                    "filename": log_file.filename,
+                    "errors_count": len(errors),
+                    "warnings_count": len(warnings),
+                    "lines_sent": log_file.lines_sent,
+                    "total_lines": log_file.total_lines,
+                    "environment": log_file.environment,
+                    "server": log_file.server_name,
+                    "service": log_file.service_name,
+                    "first_errors": errors[:5]  # Первые 5 ошибок
+                }
+            })
+        
+        logger.info(f"✅ Log file {log_id} processed: {len(errors)} errors, {len(warnings)} warnings")
+        
+    except Exception as exc:
+        logger.error(f"Error processing log file {log_id}: {exc}")
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=exc, countdown=2 ** self.request.retries)
     finally:
         db.close()

@@ -78,7 +78,7 @@ def enable_flask_integration(app, user_id_func=None):
                 if key not in event_data["meta"] and key not in ["platform", "language", "os_family"]:
                     event_data["meta"][f"custom_{key}"] = value
 
-        app.logger.info(f"📤 Sending error event to monitoring: {type(e).__name__}")
+        app.logger.info(f"Sending error event to monitoring: {type(e).__name__}")
 
         # Отправляем напрямую через _client
         try:
@@ -96,9 +96,9 @@ def enable_flask_integration(app, user_id_func=None):
                     headers={"Content-Type": "application/json"},
                     timeout=2
                 )
-            app.logger.info("✅ Error event sent successfully")
+            app.logger.info("Error event sent successfully")
         except Exception as send_err:
-            app.logger.error(f"❌ Failed to send error event: {send_err}")
+            app.logger.error(f"Failed to send error event: {send_err}")
 
         # Важно: не перехватываем исключение — Flask сам вернёт 500
         raise

@@ -181,14 +181,21 @@ def update_task_notification(db: Session, task_id: uuid.UUID,
                            telegram_message_id: int, telegram_chat_id: str,
                            severity: str):
     """Обновляет информацию об отправленном уведомлении"""
-    task = db.query(ErrorTask).filter(ErrorTask.id == task_id).first()
-    if task:
-        task.last_notification_sent_at = datetime.utcnow()
-        task.notification_count += 1
-        task.telegram_message_id = telegram_message_id
-        task.telegram_chat_id = telegram_chat_id
-        task.last_severity = severity  # Сохраняем severity
-        db.commit()
+    try:
+        task = db.query(ErrorTask).filter(ErrorTask.id == task_id).first()
+        if task:
+            # Явно загружаем все нужные атрибуты
+            _ = task.id  # принудительно загружаем
+            task.last_notification_sent_at = datetime.utcnow()
+            task.notification_count += 1
+            task.telegram_message_id = telegram_message_id
+            task.telegram_chat_id = telegram_chat_id
+            task.last_severity = severity
+            db.commit()
+            logger.debug(f"Task {task_id} notification updated")
+    except Exception as e:
+        logger.error(f"Error updating task notification: {e}")
+        db.rollback()
 
 def get_task_status_emoji(task: ErrorTask) -> str:
     """Возвращает эмодзи статуса задачи"""

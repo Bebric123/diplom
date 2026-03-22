@@ -199,3 +199,31 @@ class ErrorTask(Base):
     event = relationship("Event", backref="tasks")
     error_group = relationship("ErrorGroup", backref="tasks")
     project = relationship("Project", backref="tasks")
+
+class LogFile(Base):
+    __tablename__ = "log_files"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    error_group_id = Column(UUID(as_uuid=True), ForeignKey("error_groups.id", ondelete="CASCADE"), nullable=True)
+    
+    # Информация о файле
+    filename = Column(String, nullable=False)
+    file_path = Column(String, nullable=False)
+    file_size = Column(Integer, nullable=False)  # в байтах
+    lines_sent = Column(Integer, nullable=False)  # сколько строк отправили
+    total_lines = Column(Integer, nullable=True)  # всего строк в файле
+    
+    # Содержимое (последние N строк)
+    content = Column(Text, nullable=False)
+    
+    # Метаданные
+    server_name = Column(String, nullable=True)
+    service_name = Column(String, nullable=True)
+    environment = Column(String, nullable=True)  # production, staging, development
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Связи
+    project = relationship("Project", backref="log_files")
+    error_group = relationship("ErrorGroup", backref="log_files")

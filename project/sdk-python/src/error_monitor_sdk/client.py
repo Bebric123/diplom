@@ -27,7 +27,7 @@ class MonitorClient:
             "User-Agent": "ErrorMonitor-SDK/1.0"
         })
         
-        _logger.info(f"✅ MonitorClient initialized for project: {self.project_id}")
+        _logger.info(f"MonitorClient initialized for project: {self.project_id}")
     
     def send_event(self, 
                    action: str, 
@@ -209,7 +209,7 @@ def init_monitor(
         user_id_func=user_id_func,
         context=context or {}
     )
-    _logger.info(f"✅ ErrorMonitor SDK initialized for {endpoint} (project: {project_id})")
+    _logger.info(f"ErrorMonitor SDK initialized for {endpoint} (project: {project_id})")
     return _client
 
 def track_event(action: str, 
@@ -231,7 +231,7 @@ def track_event(action: str,
         ... )
     """
     if _client is None:
-        raise RuntimeError("❌ Call init_monitor() first")
+        raise RuntimeError("Call init_monitor() first")
     _client.send_event(action=action, metadata=metadata, page_url=page_url)
 
 def capture_exception(exception: Exception, 
@@ -259,15 +259,26 @@ def capture_exception(exception: Exception,
 def set_context(**kwargs):
     """Устанавливает глобальный контекст для всех последующих событий"""
     if _client is None:
-        raise RuntimeError("❌ Call init_monitor() first")
+        raise RuntimeError("Call init_monitor() first")
     _client.set_context(**kwargs)
 
 def clear_context():
     """Очищает глобальный контекст"""
     if _client is None:
-        raise RuntimeError("❌ Call init_monitor() first")
+        raise RuntimeError("Call init_monitor() first")
     _client.clear_context()
 
+_client = None
+
+def init_monitor(endpoint, project_id=None, user_id_func=None, context=None):
+    global _client
+    _client = MonitorClient(
+        endpoint=endpoint,
+        project_id=project_id,
+        user_id_func=user_id_func,
+        context=context
+    )
+    return _client
 
 __all__ = [
     "init_monitor", 
