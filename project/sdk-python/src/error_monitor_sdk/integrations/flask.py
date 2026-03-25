@@ -1,8 +1,9 @@
-from flask import request
-import sys
-import traceback
 import datetime
-from ..client import _client
+import traceback
+
+from flask import request
+
+from ..client import get_client
 
 def enable_flask_integration(app, user_id_func=None):
     """
@@ -16,7 +17,8 @@ def enable_flask_integration(app, user_id_func=None):
     
     @app.errorhandler(Exception)
     def handle_exception(e):
-        if _client is None:
+        client = get_client()
+        if client is None:
             app.logger.warning("ErrorMonitor SDK not initialized. Call init_monitor() first.")
             raise
 
@@ -45,13 +47,13 @@ def enable_flask_integration(app, user_id_func=None):
 
         # Формируем событие в соответствии с API (из main.py)
         event_data = {
-            "project_id": _client.project_id or "default-project",
+            "project_id": client.project_id or "default-project",
             "action": f"flask_exception: {type(e).__name__}",
             "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
             "context": {
                 "platform": "backend",
                 "language": "python",
-                "os_family": _client.context.get("os_family", "Linux") if hasattr(_client, 'context') else "Linux",
+                "os_family": client.context.get("os_family", "Linux") if hasattr(client, "context") else "Linux",
                 "browser_family": "server"
             },
             "meta": {
@@ -71,34 +73,19 @@ def enable_flask_integration(app, user_id_func=None):
             }
         }
 
-        # Добавляем дополнительные метаданные из _client.context
-        if hasattr(_client, 'context') and _client.context:
-            # Добавляем всё из context в meta, но не затираем существующие ключи
-            for key, value in _client.context.items():
+        # Добавляем дополнительные метаданные из client.context
+        if hasattr(client, "context") and client.context:
+            for key, value in client.context.items():
                 if key not in event_data["meta"] and key not in ["platform", "language", "os_family"]:
                     event_data["meta"][f"custom_{key}"] = value
 
-        app.logger.info(f"Sending error event to monitoring: {type(e).__name__}")
+        app.logger.info("Sending error event to monitoring: %s", type(e).__name__)
 
-        # Отправляем напрямую через _client
         try:
-            if hasattr(_client, '_send_sync'):
-                _client._send_sync(event_data)
-            elif hasattr(_client, 'send_event'):
-                # Если есть send_event, используем его
-                _client.send_event(event_data)
-            else:
-                # Пробуем напрямую через requests
-                import requests
-                requests.post(
-                    f"{_client.api_url}/track",
-                    json=event_data,
-                    headers={"Content-Type": "application/json"},
-                    timeout=2
-                )
+            client._send_sync(event_data)
             app.logger.info("Error event sent successfully")
         except Exception as send_err:
-            app.logger.error(f"Failed to send error event: {send_err}")
+            app.logger.error("Failed to send error event: %s", send_err)
 
         # Важно: не перехватываем исключение — Flask сам вернёт 500
         raise

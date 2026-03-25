@@ -1,6 +1,7 @@
 // error-monitor-sdk/index.js
 const axios = require('axios');
 const os = require('os');
+const { sendLogFile: uploadLogFile } = require('./logs');
 
 class MonitorClient {
     constructor(options = {}) {
@@ -186,6 +187,21 @@ class MonitorClient {
         this.context = {};
         this._log('Context cleared');
     }
+
+    /**
+     * Отправляет последние N строк файла на POST /logs/upload (фоново).
+     * @param {string} filepath — абсолютный или относительный путь к файлу
+     * @param {object} [options]
+     * @param {number} [options.lines=50]
+     * @param {string} [options.serverName]
+     * @param {string} [options.serviceName]
+     * @param {string} [options.environment]
+     * @param {string} [options.errorGroupId]
+     * @returns {boolean}
+     */
+    sendLogFile(filepath, options = {}) {
+        return uploadLogFile(this, filepath, options);
+    }
 }
 
 // Глобальный экземпляр
@@ -259,5 +275,17 @@ module.exports = {
      */
     getClient() {
         return _client;
-    }
+    },
+
+    /**
+     * Отправка лог-файла (последние строки) на коллектор. Нужен initMonitor().
+     * @param {string} filepath
+     * @param {object} [options] — lines, serverName, serviceName, environment, errorGroupId
+     */
+    sendLogFile(filepath, options = {}) {
+        if (!_client) {
+            throw new Error('❌ Call initMonitor() first');
+        }
+        return uploadLogFile(_client, filepath, options);
+    },
 };

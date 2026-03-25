@@ -9,7 +9,7 @@ from typing import Optional, Callable, Dict, Any
 import logging
 import asyncio 
 
-from ..client import _client
+from ..client import get_client
 from ..utils.context import get_request_context
 
 logger = logging.getLogger("error_monitor_sdk")
@@ -56,43 +56,45 @@ class FastAPIMonitoringMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             
             # Логируем успешный запрос (если включено)
-            if self.capture_requests and _client:
+            client = get_client()
+            if self.capture_requests and client:
                 duration = (time.time() - start_time) * 1000  # в миллисекундах
-                
+
                 metadata = {
                     "user_id": user_id,
                     "status_code": response.status_code,
                     "duration_ms": duration,
                     "response_size": response.headers.get("content-length"),
-                    **get_request_context(request, "fastapi")
+                    **get_request_context(request, "fastapi"),
                 }
-                
-                _client.send_event(
+
+                client.send_event(
                     action=f"http: {request.method} {request.url.path}",
                     metadata=metadata,
-                    page_url=str(request.url)
+                    page_url=str(request.url),
                 )
             
             return response
             
         except Exception as e:
             # Логируем ошибку
-            if self.capture_errors and _client:
+            client = get_client()
+            if self.capture_errors and client:
                 duration = (time.time() - start_time) * 1000
-                
+
                 error_metadata = {
                     "user_id": user_id,
                     "duration_ms": duration,
                     "exception_type": type(e).__name__,
                     "error_message": str(e),
                     "traceback": traceback.format_exc(),
-                    **get_request_context(request, "fastapi")
+                    **get_request_context(request, "fastapi"),
                 }
-                
-                _client.capture_exception(
+
+                client.capture_exception(
                     exception=e,
                     metadata=error_metadata,
-                    page_url=str(request.url)
+                    page_url=str(request.url),
                 )
             
             # Возвращаем ошибку клиенту
@@ -132,7 +134,7 @@ def enable_fastapi_integration(
         ...     exclude_paths=["/health"]
         ... )
     """
-    if _client is None:
+    if get_client() is None:
         logger.warning("⚠️ ErrorMonitor SDK not initialized. Call init_monitor() first.")
         return
     
@@ -148,7 +150,8 @@ def enable_fastapi_integration(
     # Добавляем обработчик исключений
     @app.exception_handler(Exception)
     async def exception_handler(request: Request, exc: Exception):
-        if capture_errors and _client:
+        client = get_client()
+        if capture_errors and client:
             user_id = "anonymous"
             if user_id_func:
                 try:
@@ -158,15 +161,15 @@ def enable_fastapi_integration(
                         user_id = user_id_func(request)
                 except Exception:
                     pass
-            
-            _client.capture_exception(
+
+            client.capture_exception(
                 exception=exc,
                 metadata={
                     "user_id": user_id,
                     "exception_type": type(exc).__name__,
-                    **get_request_context(request, "fastapi")
+                    **get_request_context(request, "fastapi"),
                 },
-                page_url=str(request.url)
+                page_url=str(request.url),
             )
         
         # Пробрасываем дальше

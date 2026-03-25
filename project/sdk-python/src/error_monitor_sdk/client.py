@@ -177,6 +177,12 @@ class MonitorClient:
 # Глобальный клиент
 _client: Optional[MonitorClient] = None
 
+
+def get_client() -> Optional[MonitorClient]:
+    """Текущий клиент после init_monitor. Интеграции должны вызывать это, а не импортировать _client."""
+    return _client
+
+
 def init_monitor(
     endpoint: str,
     project_id: str = "default-project",
@@ -267,23 +273,3 @@ def clear_context():
     if _client is None:
         raise RuntimeError("Call init_monitor() first")
     _client.clear_context()
-
-_client = None
-
-def init_monitor(endpoint, project_id=None, user_id_func=None, context=None):
-    global _client
-    _client = MonitorClient(
-        endpoint=endpoint,
-        project_id=project_id,
-        user_id_func=user_id_func,
-        context=context
-    )
-    return _client
-
-__all__ = [
-    "init_monitor", 
-    "track_event", 
-    "capture_exception", 
-    "set_context", 
-    "clear_context"
-]

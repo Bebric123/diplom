@@ -17,6 +17,21 @@ dependencies = [
     "requests>=2.25.0",
 ]
 
+[project.optional-dependencies]
+starlette = ["starlette>=0.27"]
+fastapi = ["fastapi>=0.104"]
+flask = ["flask>=3.0"]
+quart = ["quart>=0.19"]
+litestar = ["litestar>=2.0"]
+django = ["django>=4.2"]
+web = [
+    "starlette>=0.27",
+    "fastapi>=0.104",
+    "flask>=3.0",
+    "quart>=0.19",
+    "litestar[standard]>=2.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/swoopli/monitoring-platform"
 Repository = "https://github.com/swoopli/monitoring-platform"

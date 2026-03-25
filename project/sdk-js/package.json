@@ -2,9 +2,19 @@
   "name": "error-monitor-sdk",
   "version": "1.0.0",
   "description": "SDK для отправки ошибок и событий в систему мониторинга",
-  "main": "index.js",
+  "main": "src/error_monitor_sdk/index.js",
+  "exports": {
+    ".": "./src/error_monitor_sdk/index.js",
+    "./integrations/express": "./src/error_monitor_sdk/integrations/express.js",
+    "./integrations/fastify": "./src/error_monitor_sdk/integrations/fastify.js",
+    "./integrations/browser": "./src/error_monitor_sdk/integrations/browser.js",
+    "./integrations/react": "./src/error_monitor_sdk/integrations/react.js",
+    "./integrations/vue": "./src/error_monitor_sdk/integrations/vue.js",
+    "./logs": "./src/error_monitor_sdk/logs.js"
+  },
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "build": "webpack --mode production"
   },
   "keywords": ["monitoring", "errors", "logging", "sdk"],
   "author": "Your Name",
@@ -12,8 +22,21 @@
   "dependencies": {
     "axios": "^1.6.0"
   },
+  "devDependencies": {
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.4"
+  },
   "peerDependencies": {
-    "express": "^4.18.0"
+    "express": "^4.18.0",
+    "fastify": "^4.24.0 || ^5.0.0",
+    "react": ">=17.0.0",
+    "vue": "^2.7.0 || ^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "express": { "optional": true },
+    "fastify": { "optional": true },
+    "react": { "optional": true },
+    "vue": { "optional": true }
   },
   "engines": {
     "node": ">=12.0.0"

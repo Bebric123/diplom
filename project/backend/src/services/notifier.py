@@ -1,27 +1,26 @@
-import os
 import asyncio
 import json
+import logging
+import os
 import re
 import time
-import logging
-from datetime import datetime, timedelta
-from aiogram import Bot
-from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.exceptions import TelegramBadRequest
-from sqlalchemy.orm import Session
-from sqlalchemy import create_engine
-from src.core.models import ErrorTask, Event, ErrorGroup
-from src.services.classifier import analyze_error_with_gigachat
 import uuid
+from datetime import datetime
+from typing import Optional
+
+from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from sqlalchemy.orm import Session, joinedload
+
+from src.core.database import SessionLocal
+from src.core.models import ErrorGroup, ErrorTask, Event, EventContext
+from src.services.classifier import analyze_error_with_gigachat
 
 logger = logging.getLogger(__name__)
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
-# Настройка движка для работы с БД
-DATABASE_URL = "postgresql://postgres:postgres@db:5432/Monitoring"
-engine = create_engine(DATABASE_URL)
 
 # Конфигурация троттлинга (в секундах)
 THROTTLE_CONFIG = {
@@ -117,7 +116,39 @@ def format_metadata(metadata: dict) -> str:
     
     return "\n".join(parts) if parts else "—"
 
-def should_send_notification(db: Session, error_group_id: uuid.UUID, severity: str,  status_code: int = None) -> bool:
+
+def _event_to_analyzer_payload(event: Event) -> dict:
+    meta = dict(event.metadata_ or {})
+    page_url = meta.get("page_url", "N/A")
+    if event.context:
+        ctx = event.context
+        platform_name = ctx.platform.name if ctx.platform else "unknown"
+        context_data = {
+            "platform": platform_name,
+            "language": ctx.language or "javascript",
+            "os_family": ctx.os_family or "unknown",
+            "browser_family": ctx.browser_family or "unknown",
+        }
+        if ctx.browser_version:
+            context_data["browser_version"] = ctx.browser_version
+    else:
+        context_data = {
+            "platform": "unknown",
+            "language": "javascript",
+            "os_family": "unknown",
+            "browser_family": "unknown",
+        }
+    return {
+        "context": context_data,
+        "meta": meta,
+        "action": event.action,
+        "page_url": page_url,
+    }
+
+
+def should_send_notification(
+    db: Session, error_group_id: uuid.UUID, severity: str, status_code: Optional[int] = None
+) -> bool:
     """
     Проверяет, нужно ли отправлять уведомление на основе троттлинга
     Возвращает True если:
@@ -198,7 +229,8 @@ def update_task_notification(db: Session, task_id: uuid.UUID,
         db.rollback()
 
 def get_task_status_emoji(task: ErrorTask) -> str:
-    """Возвращает эмодзи статуса задачи"""
+    if not task:
+        return "❔"
     if task.is_resolved:
         return "✅"
     elif task.is_acknowledged:
@@ -207,7 +239,8 @@ def get_task_status_emoji(task: ErrorTask) -> str:
         return "⏳"
 
 def get_task_status_text(task: ErrorTask) -> str:
-    """Возвращает текст статуса задачи"""
+    if not task:
+        return "Не создана"
     if task.is_resolved:
         return "Решена"
     elif task.is_acknowledged:
@@ -246,7 +279,59 @@ def create_resolved_keyboard() -> InlineKeyboardMarkup:
     ])
     return keyboard
 
-async def send_telegram_message_async(event: dict, error_group_id: uuid.UUID, task_id: uuid.UUID = None):
+def build_message(event: dict, task: ErrorTask, analysis: dict) -> str:
+    context = event.get("context", {})
+    meta = event.get("meta", {})
+    action = event.get("action", "N/A")
+
+    platform = context.get("platform", "unknown")
+    platform_emoji = get_platform_emoji(platform)
+
+    severity = analysis.get("severity", "средняя")
+    criticality = analysis.get("criticality", "требует внимания")
+
+    severity_emoji = get_severity_emoji(severity)
+    criticality_emoji = get_criticality_emoji(criticality)
+
+    context_text = format_context(context)
+    meta_text = format_metadata(meta)
+
+    status_emoji = get_task_status_emoji(task)
+    status_text = get_task_status_text(task)
+
+    if "exception" in action:
+        title = f"{platform_emoji} <b>❌ ИСКЛЮЧЕНИЕ: {action.replace('exception:', '').strip()}</b>"
+    else:
+        title = f"{platform_emoji} <b>{platform.upper()} СОБЫТИЕ</b>"
+
+    message = "\n".join([
+        title,
+        "",
+        # f"🆔 <b>ID задачи:</b> <code>{task.id}</code>",
+        f"👤 <b>Пользователь:</b> <code>{meta.get('user_id', 'anonymous')}</code>",
+        f"🖱 <b>Действие:</b> <code>{action}</code>",
+        f"🌐 <b>Страница:</b> {meta.get('page_url', 'N/A')}",
+        "",
+        f"<b>📊 Контекст:</b>",
+        context_text,
+        "",
+        f"<b>📋 Детали:</b>",
+        meta_text,
+        "",
+        f"<b>🔍 Анализ:</b>",
+        f"{severity_emoji} <b>Срочность:</b> {severity.upper()}",
+        f"{criticality_emoji} <b>Критичность:</b> {criticality.upper()}",
+        f"💡 <b>Рекомендация:</b> {analysis.get('recommendation', '—')}",
+        "",
+        f"<b>📌 Статус:</b> {status_emoji} {status_text}",
+        # f"🔁 <b>Обновлений:</b> {task.notification_count}"
+    ])
+
+    return message
+
+async def send_telegram_message_async(
+    event: dict, error_group_id: uuid.UUID, task_id: Optional[uuid.UUID] = None
+):
     """
     Асинхронная отправка уведомления об ошибке в Telegram с кнопками
     """
@@ -259,74 +344,16 @@ async def send_telegram_message_async(event: dict, error_group_id: uuid.UUID, ta
         
         # Анализируем через GigaChat
         analysis = analyze_error_with_gigachat(event)
-        
-        # Извлекаем данные
-        context = event.get("context", {})
-        meta = event.get("meta", {})
-        
-        # Определяем платформу
-        platform = context.get("platform", "unknown")
-        platform_emoji = get_platform_emoji(platform)
-        
-        # Определяем severity и criticality
-        severity = analysis.get("severity", "средняя")
-        criticality = analysis.get("criticality", "требует внимания")
-        severity_emoji = get_severity_emoji(severity)
-        criticality_emoji = get_criticality_emoji(criticality)
-        
-        # Форматируем контекст и метаданные
-        context_text = format_context(context)
-        meta_text = format_metadata(meta)
-        
-        # Получаем action из события
-        action = event.get("action", "N/A")
-        
-        # Получаем статус задачи, если есть task_id
-        status_emoji = "⏳"
-        status_text = "Ожидает"
-        task_display_id = "—"
-        
-        if task_id:
-            db = Session(engine)
-            try:
-                task = db.query(ErrorTask).filter(ErrorTask.id == task_id).first()
-                if task:
-                    status_emoji = get_task_status_emoji(task)
-                    status_text = get_task_status_text(task)
-                    task_display_id = str(task_id)
-            finally:
-                db.close()
-        
-        # Формируем заголовок
-        if "exception" in action:
-            title = f"{platform_emoji} <b>❌ ИСКЛЮЧЕНИЕ: {action.replace('exception:', '').strip()}</b>"
-        else:
-            title = f"{platform_emoji} <b>{platform.upper()} СОБЫТИЕ</b>"
-        
-        # Основное сообщение
-        message_parts = [
-            title,
-            "",
-            f"🆔 <b>ID задачи:</b> <code>{task_display_id}</code>",
-            f"👤 <b>Пользователь:</b> <code>{meta.get('user_id', 'anonymous')}</code>",
-            f"🖱 <b>Действие:</b> <code>{action}</code>",
-            f"🌐 <b>Страница:</b> {meta.get('page_url', 'N/A')}",
-            "",
-            f"<b>📊 Контекст:</b>",
-            f"{context_text}",
-            "",
-            f"<b>📋 Детали:</b>",
-            f"{meta_text}",
-            "",
-            f"<b>🔍 Анализ GigaChat:</b>",
-            f"{severity_emoji} <b>Срочность:</b> {severity.upper()}",
-            f"{criticality_emoji} <b>Критичность:</b> {criticality.upper()}",
-            f"💡 <b>Рекомендация:</b> {analysis.get('recommendation', '—')}",
-            "",
-            f"<b>📌 Статус:</b> {status_emoji} {status_text}"
-        ]
-        
-        message = "\n".join(message_parts)
+
+        db = SessionLocal()
+        try:
+            task = db.query(ErrorTask).filter(ErrorTask.id == task_id).first()
+        finally:
+            db.close()
+
+        status_text = get_task_status_text(task)
+
+        message = build_message(event, task, analysis)
         
         # Сохраняем полную информацию в файл
         full_info = json.dumps(event, indent=2, ensure_ascii=False)
@@ -360,8 +387,6 @@ async def send_telegram_message_async(event: dict, error_group_id: uuid.UUID, ta
             caption="📄 Полная информация об ошибке"
         )
         
-        logger.info(f"✅ Telegram notification sent for event: {action}")
-        
         return sent_message.message_id
         
     except Exception as e:
@@ -371,80 +396,60 @@ async def send_telegram_message_async(event: dict, error_group_id: uuid.UUID, ta
         await bot.session.close()
 
 async def update_telegram_message(task_id: uuid.UUID):
-    """
-    Обновляет сообщение в Telegram при изменении статуса задачи
-    """
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
-    
+
     try:
-        db = Session(engine)
+        db = SessionLocal()
         try:
-            # Получаем задачу
             task = db.query(ErrorTask).filter(ErrorTask.id == task_id).first()
             if not task or not task.telegram_message_id:
-                logger.warning(f"Task {task_id} not found or no message_id")
+                logger.warning("Task %s not found or no message_id", task_id)
                 return
-            
-            # Получаем событие и группу
-            event = db.query(Event).filter(Event.id == task.event_id).first()
+
+            event = (
+                db.query(Event)
+                .options(joinedload(Event.context).joinedload(EventContext.platform))
+                .filter(Event.id == task.event_id)
+                .first()
+            )
             error_group = db.query(ErrorGroup).filter(ErrorGroup.id == task.error_group_id).first()
-            
+
             if not event or not error_group:
-                logger.warning(f"Event or error group not found for task {task_id}")
+                logger.warning("Event or error group not found for task %s", task_id)
                 return
-            
-            # Получаем текущий статус
-            status_emoji = get_task_status_emoji(task)
-            status_text = get_task_status_text(task)
-            
-            # Сначала получаем текущее сообщение, чтобы не потерять контент
+
+            event_dict = _event_to_analyzer_payload(event)
+            analysis = analyze_error_with_gigachat(event_dict)
+            updated_message = build_message(event_dict, task, analysis)
+
+            if task.is_resolved:
+                keyboard = create_resolved_keyboard()
+            else:
+                keyboard = create_task_keyboard(str(task_id))
+
             try:
-                # Пытаемся получить сообщение (но мы не можем его получить через API бота,
-                # поэтому просто обновляем статус в существующем сообщении)
-                
-                # Создаём новую клавиатуру
-                if task.is_resolved:
-                    keyboard = create_resolved_keyboard()
-                else:
-                    keyboard = create_task_keyboard(str(task_id))
-                
-                # Обновляем сообщение - меняем только клавиатуру и строку статуса
-                # В реальности нужно хранить полный текст сообщения или получать его
-                # Но для простоты отправим новое сообщение с обновлённым статусом
-                
-                # Получаем текст сообщения (в идеале нужно хранить его в БД)
-                # Пока просто отправляем уведомление о изменении статуса отдельно
-                
-                # Отправляем новое сообщение с обновлённым статусом
-                await bot.send_message(
-                    chat_id=task.telegram_chat_id,
-                    text=f"🔄 Статус задачи изменён: {status_emoji} {status_text}",
-                    parse_mode="HTML"
-                )
-                
-                # Обновляем исходное сообщение - меняем клавиатуру
-                await bot.edit_message_reply_markup(
+                await bot.edit_message_text(
                     chat_id=task.telegram_chat_id,
                     message_id=task.telegram_message_id,
-                    reply_markup=keyboard
+                    text=updated_message,
+                    parse_mode="HTML",
+                    reply_markup=keyboard,
                 )
-                
-                logger.info(f"✅ Updated telegram message for task {task_id}")
-                
+                logger.info("Message updated for task %s", task_id)
             except TelegramBadRequest as e:
                 if "message is not modified" not in str(e):
-                    logger.error(f"❌ Failed to update telegram message: {e}")
-            
+                    logger.error("Telegram update error: %s", e)
         finally:
             db.close()
-            
     except Exception as e:
-        logger.error(f"❌ Failed to update telegram message: {e}", exc_info=True)
+        logger.error("Failed to update telegram message: %s", e, exc_info=True)
         raise
     finally:
         await bot.session.close()
 
-def send_telegram_message_sync(event: dict, error_group_id: uuid.UUID, task_id: uuid.UUID = None):
+def send_telegram_message_sync(
+    event: dict, error_group_id: uuid.UUID, task_id: Optional[uuid.UUID] = None
+):
     """
     Синхронная обёртка для отправки уведомления в Telegram.
     """
@@ -493,10 +498,12 @@ def update_telegram_message_sync(task_id: uuid.UUID):
                 loop.close()
 
 __all__ = [
-    'send_telegram_message_sync',
-    'update_telegram_message_sync',
-    'should_send_notification',
-    'create_error_task',
-    'update_task_notification',
-    'TELEGRAM_CHAT_ID'  # Добавьте эту строку
+    "send_telegram_message_async",
+    "send_telegram_message_sync",
+    "update_telegram_message",
+    "update_telegram_message_sync",
+    "should_send_notification",
+    "create_error_task",
+    "update_task_notification",
+    "TELEGRAM_CHAT_ID",
 ]

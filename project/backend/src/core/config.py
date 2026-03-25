@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+
 
 class Settings(BaseSettings):
     # Redis
@@ -18,10 +18,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str
     telegram_chat_id: str
     
-    # Разрешить лишние переменные (опционально, но рекомендуется для гибкости)
     class Config:
         env_file = ".env"
-        extra = "ignore"  # ← ИГНОРИРОВАТЬ лишние переменные в .env
+        extra = "ignore"
 
-def get_settings():
+
+def get_settings() -> Settings:
     return Settings()

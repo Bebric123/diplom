@@ -1,0 +1,13 @@
+# Установка SDK в editable-режиме и зависимости для демо-приложений
+-e ../../../project/sdk-python
+
+# Общее
+requests
+uvicorn
+
+# По необходимости (раскомментируйте минимум для своего сценария)
+fastapi>=0.104
+flask>=3.0
+starlette>=0.27
+quart>=0.19
+litestar[standard]>=2.0

@@ -1,6 +1,5 @@
 import json
 import re
-import os
 import requests
 from .gigachat_auth import GigaChatAuth
 
@@ -71,7 +70,7 @@ URL: {page_url}
             json=payload,
             headers=headers,
             verify=False,
-            timeout=15
+            timeout=15,
         )
         response.raise_for_status()
         result = response.json()["choices"][0]["message"]["content"]

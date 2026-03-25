@@ -1,5 +1,5 @@
 // error-monitor-sdk/integrations/browser.js
-const { getClient } = require('../../index');
+const { getClient } = require('../index');
 
 /**
  * Подключает мониторинг к браузеру

@@ -1,0 +1,11 @@
+{
+  "name": "monitor-sdk-demos",
+  "private": true,
+  "description": "Ручные проверки JS SDK",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "error-monitor-sdk": "file:../../../project/sdk-js",
+    "express": "^4.21.0",
+    "fastify": "^4.28.0"
+  }
+}

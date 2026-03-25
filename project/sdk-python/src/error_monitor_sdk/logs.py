@@ -4,7 +4,7 @@ import requests
 import logging
 import threading
 from typing import Optional, Dict, Any
-from .client import _client
+from .client import get_client
 
 logger = logging.getLogger("error_monitor_sdk")
 
@@ -29,9 +29,10 @@ def send_log_file(
         error_group_id: ID группы ошибок (если привязано)
         metadata: Дополнительные метаданные
     """
-    if _client is None:
+    client = get_client()
+    if client is None:
         raise RuntimeError("Call init_monitor() first")
-    
+
     try:
         # Проверяем существование файла
         if not os.path.exists(filepath):
@@ -53,19 +54,18 @@ def send_log_file(
         
         # Формируем данные для отправки
         data = {
-            "project_id": _client.project_id,
+            "project_id": client.project_id,
             "filename": filename,
             "content": content,
             "lines_sent": min(lines, total_lines),
             "total_lines": total_lines,
             "server_name": server_name or os.environ.get('HOSTNAME', os.environ.get('COMPUTERNAME', 'unknown')),
             "service_name": service_name,
-            "environment": environment or _client.context.get('environment', 'production'),
+            "environment": environment or client.context.get('environment', 'production'),
             "error_group_id": error_group_id,
             "metadata": metadata or {}
         }
-        
-        # Отправляем асинхронно
+
         thread = threading.Thread(
             target=_send_log_sync,
             args=(data,),
@@ -82,12 +82,16 @@ def send_log_file(
 
 def _send_log_sync(data: dict):
     """Синхронная отправка лога"""
+    client = get_client()
+    if client is None:
+        logger.error("SDK not initialized, log upload skipped")
+        return
     try:
         response = requests.post(
-            f"{_client.api_url}/logs/upload",
+            f"{client.endpoint}/logs/upload",
             json=data,
             headers={"Content-Type": "application/json"},
-            timeout=10
+            timeout=10,
         )
         if response.status_code == 200:
             logger.info(f"Log file sent successfully: {response.json().get('id', 'unknown')}")
@@ -96,53 +100,6 @@ def _send_log_sync(data: dict):
     except requests.exceptions.Timeout:
         logger.error("Timeout sending log file")
     except requests.exceptions.ConnectionError:
-        logger.error(f"Connection error to {_client.api_url}")
+        logger.error("Connection error to %s", client.endpoint)
     except Exception as e:
         logger.error(f"Error sending log: {e}")
-
-# Для обратной совместимости
-def send_log_file_sync(filepath: str, lines: int = 50, **kwargs):
-    """Синхронная версия отправки лога"""
-    if _client is None:
-        raise RuntimeError("Call init_monitor() first")
-    
-    try:
-        # Читаем файл
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            all_lines = f.readlines()
-            total_lines = len(all_lines)
-            last_lines = all_lines[-lines:] if lines > 0 else all_lines
-            content = ''.join(last_lines)
-        
-        filename = os.path.basename(filepath)
-        
-        data = {
-            "project_id": _client.project_id,
-            "filename": filename,
-            "content": content,
-            "lines_sent": min(lines, total_lines),
-            "total_lines": total_lines,
-            "server_name": kwargs.get('server_name', os.environ.get('HOSTNAME', 'unknown')),
-            "service_name": kwargs.get('service_name'),
-            "environment": kwargs.get('environment', 'production'),
-            "error_group_id": kwargs.get('error_group_id'),
-            "metadata": kwargs.get('metadata', {})
-        }
-        
-        response = requests.post(
-            f"{_client.api_url}/logs/upload",
-            json=data,
-            headers={"Content-Type": "application/json"},
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            logger.info(f"Log file sent successfully: {response.json()}")
-            return True
-        else:
-            logger.error(f"Failed to send log: {response.status_code}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Error sending log: {e}")
-        return False

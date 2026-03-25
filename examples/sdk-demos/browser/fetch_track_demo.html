@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>SDK demo — fetch /track</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; }
+    code { background: #f4f4f4; padding: 0.1rem 0.3rem; }
+    button { padding: 0.5rem 1rem; cursor: pointer; }
+    pre { background: #111; color: #0f0; padding: 1rem; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Проверка коллектора из браузера</h1>
+  <p>
+    Укажите URL коллектора (нужен <strong>CORS</strong> с этого origin).
+    Откройте страницу через HTTP (например <code>npx serve .</code>), не как <code>file://</code>.
+  </p>
+  <label>Collector URL <input id="base" type="text" size="40" value="http://127.0.0.1:8000" /></label><br /><br />
+  <label>Project UUID <input id="project" type="text" size="40" value="00000000-0000-4000-8000-000000000001" /></label><br /><br />
+  <button type="button" id="send">Отправить тестовое событие</button>
+  <pre id="out"></pre>
+  <script>
+    const out = document.getElementById('out');
+    document.getElementById('send').onclick = async () => {
+      const base = document.getElementById('base').value.replace(/\/$/, '');
+      const project_id = document.getElementById('project').value.trim();
+      const payload = {
+        project_id,
+        action: 'browser_fetch_demo',
+        timestamp: new Date().toISOString(),
+        context: {
+          platform: 'frontend',
+          language: 'javascript',
+          os_family: 'browser',
+          browser_family: navigator.userAgent.includes('Chrome') ? 'chrome' : 'other',
+        },
+        meta: {
+          page_url: location.href,
+          error_message: 'синтетическая ошибка из fetch_track_demo.html',
+          user_agent: navigator.userAgent,
+        },
+      };
+      try {
+        const res = await fetch(base + '/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const text = await res.text();
+        out.textContent = res.status + ' ' + res.statusText + '\n' + text;
+      } catch (e) {
+        out.textContent = String(e);
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,5 +1,5 @@
-# backend/src/db/models.py
-from sqlalchemy import Column, UUID, String, Boolean, DateTime, JSON, ForeignKey, Text, Integer, ARRAY, UniqueConstraint, Float
+# backend/src/core/models.py
+from sqlalchemy import Column, UUID, String, Boolean, DateTime, ForeignKey, Text, Integer, ARRAY, UniqueConstraint, Float
 from sqlalchemy.dialects.postgresql import JSONB, INET
 from sqlalchemy.sql import func
 from .database import Base

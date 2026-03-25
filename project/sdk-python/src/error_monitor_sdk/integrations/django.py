@@ -8,7 +8,7 @@ from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpResponse
 from django.utils.deprecation import MiddlewareMixin
 
-from ..client import _client
+from ..client import get_client
 from ..utils.context import get_request_context
 
 logger = logging.getLogger("error_monitor_sdk")
@@ -58,12 +58,12 @@ class DjangoMonitoringMiddleware(MiddlewareMixin):
         if not hasattr(request, 'monitor_start_time'):
             return response
         
-        if not _client:
+        client = get_client()
+        if not client:
             return response
-        
+
         duration = (time.time() - request.monitor_start_time) * 1000
-        
-        # Собираем метаданные
+
         metadata = {
             "user_id": getattr(request, 'monitor_user_id', 'anonymous'),
             "status_code": response.status_code,
@@ -79,10 +79,10 @@ class DjangoMonitoringMiddleware(MiddlewareMixin):
         
         # Отправляем событие
         if self.capture_requests:
-            _client.send_event(
+            client.send_event(
                 action=f"http: {request.method} {request.path}",
                 metadata=metadata,
-                page_url=request.build_absolute_uri()
+                page_url=request.build_absolute_uri(),
             )
         
         return response
@@ -92,11 +92,12 @@ class DjangoMonitoringMiddleware(MiddlewareMixin):
         if not hasattr(request, 'monitor_start_time'):
             return None
         
-        if not _client or not self.capture_errors:
+        client = get_client()
+        if not client or not self.capture_errors:
             return None
-        
+
         duration = (time.time() - request.monitor_start_time) * 1000
-        
+
         error_metadata = {
             "user_id": getattr(request, 'monitor_user_id', 'anonymous'),
             "duration_ms": duration,
@@ -106,10 +107,10 @@ class DjangoMonitoringMiddleware(MiddlewareMixin):
             **get_request_context(request, "django")
         }
         
-        _client.capture_exception(
+        client.capture_exception(
             exception=exception,
             metadata=error_metadata,
-            page_url=request.build_absolute_uri()
+            page_url=request.build_absolute_uri(),
         )
         
         return None
@@ -150,7 +151,7 @@ def enable_django_integration(
         ...     # ... остальные middleware
         ... ]
     """
-    if _client is None:
+    if get_client() is None:
         logger.warning("⚠️ ErrorMonitor SDK not initialized. Call init_monitor() first.")
         return "django.middleware.common.CommonMiddleware"  # Заглушка
     

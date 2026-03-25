@@ -8,15 +8,16 @@ def get_request_context(request: Any, framework: str) -> Dict[str, Any]:
     context = {}
     
     try:
-        if framework == "fastapi":
+        if framework in ("fastapi", "starlette"):
+            path_params = dict(getattr(request, "path_params", {}) or {})
             context = {
                 "url": str(request.url),
                 "method": request.method,
                 "path": request.url.path,
                 "query_params": dict(request.query_params),
-                "path_params": dict(request.path_params),
+                "path_params": path_params,
                 "client_host": request.client.host if request.client else None,
-                "headers": dict(request.headers)
+                "headers": dict(request.headers),
             }
             
         elif framework == "django":
