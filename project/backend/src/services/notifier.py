@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 import re
 import time
 import uuid
@@ -13,14 +12,25 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.orm import Session, joinedload
 
+from src.core.config import get_settings
 from src.core.database import SessionLocal
-from src.core.models import ErrorGroup, ErrorTask, Event, EventContext
+from src.core.models import ErrorGroup, ErrorTask, Event, EventContext, Project
 from src.services.classifier import analyze_error_with_gigachat
 
 logger = logging.getLogger(__name__)
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+def _bot_token() -> str:
+    return get_settings().telegram_bot_token
+
+
+def get_project_telegram_chat_id(db: Session, project_id: uuid.UUID) -> Optional[str]:
+    """Chat id для алертов по проекту (из регистрации). Без него уведомления не отправляются."""
+    p = db.query(Project).filter(Project.id == project_id).first()
+    if not p or not p.telegram_chat_id:
+        return None
+    s = str(p.telegram_chat_id).strip()
+    return s or None
 
 # Троттлинг алертов по нормализованной severity (секунды между повторами для той же группы)
 THROTTLE_CONFIG = {
@@ -343,12 +353,21 @@ def build_message(event: dict, task: ErrorTask, analysis: dict) -> str:
     return message
 
 async def send_telegram_message_async(
-    event: dict, error_group_id: uuid.UUID, task_id: Optional[uuid.UUID] = None
+    event: dict,
+    error_group_id: uuid.UUID,
+    task_id: Optional[uuid.UUID] = None,
+    telegram_chat_id: Optional[str] = None,
 ):
     """
-    Асинхронная отправка уведомления об ошибке в Telegram с кнопками
+    Асинхронная отправка уведомления об ошибке в Telegram с кнопками.
+    telegram_chat_id — чат проекта; без него отправка пропускается.
     """
-    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    if not telegram_chat_id or not str(telegram_chat_id).strip():
+        logger.warning("Telegram: нет chat_id проекта, уведомление пропущено (group=%s)", error_group_id)
+        return None
+
+    chat_id = str(telegram_chat_id).strip()
+    bot = Bot(token=_bot_token())
     ts = str(int(time.time()))
     
     try:
@@ -386,7 +405,7 @@ async def send_telegram_message_async(
         
         # Отправляем сообщение
         sent_message = await bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
+            chat_id=chat_id,
             text=message,
             parse_mode="HTML",
             reply_markup=keyboard
@@ -395,7 +414,7 @@ async def send_telegram_message_async(
         # Отправляем файл с полной информацией
         document = FSInputFile(file_path)
         await bot.send_document(
-            chat_id=TELEGRAM_CHAT_ID,
+            chat_id=chat_id,
             document=document,
             caption="📄 Полная информация об ошибке"
         )
@@ -409,7 +428,7 @@ async def send_telegram_message_async(
         await bot.session.close()
 
 async def update_telegram_message(task_id: uuid.UUID):
-    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    bot = Bot(token=_bot_token())
 
     try:
         db = SessionLocal()
@@ -461,7 +480,10 @@ async def update_telegram_message(task_id: uuid.UUID):
         await bot.session.close()
 
 def send_telegram_message_sync(
-    event: dict, error_group_id: uuid.UUID, task_id: Optional[uuid.UUID] = None
+    event: dict,
+    error_group_id: uuid.UUID,
+    task_id: Optional[uuid.UUID] = None,
+    telegram_chat_id: Optional[str] = None,
 ):
     """
     Синхронная обёртка для отправки уведомления в Telegram.
@@ -471,7 +493,9 @@ def send_telegram_message_sync(
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         message_id = loop.run_until_complete(
-            send_telegram_message_async(event, error_group_id, task_id)
+            send_telegram_message_async(
+                event, error_group_id, task_id, telegram_chat_id=telegram_chat_id
+            )
         )
         logger.info("✅ Telegram notification sent successfully")
         return message_id
@@ -519,5 +543,5 @@ __all__ = [
     "update_error_group_alert_anchor",
     "create_error_task",
     "update_task_notification",
-    "TELEGRAM_CHAT_ID",
+    "get_project_telegram_chat_id",
 ]

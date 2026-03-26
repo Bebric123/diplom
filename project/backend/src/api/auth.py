@@ -4,9 +4,9 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import HTTPException
+from fastapi import Header, HTTPException
 from sqlalchemy.orm import Session
 
 from src.core.config import get_settings
@@ -64,3 +64,16 @@ def require_project_api_key(
         if exp < now:
             raise HTTPException(status_code=401, detail="API key expired")
     return row
+
+
+def reports_token_guard(
+    authorization: Annotated[Optional[str], Header()] = None,
+    x_reports_token: Annotated[Optional[str], Header(alias="X-Reports-Token")] = None,
+) -> None:
+    """Если задан REPORTS_API_TOKEN — проверить Bearer или X-Reports-Token."""
+    s = get_settings()
+    if not s.reports_api_token:
+        return
+    got = extract_api_key(authorization, x_reports_token)
+    if got != s.reports_api_token:
+        raise HTTPException(status_code=401, detail="Invalid or missing reports token")

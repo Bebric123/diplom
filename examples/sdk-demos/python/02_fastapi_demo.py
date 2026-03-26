@@ -16,9 +16,15 @@ from error_monitor_sdk import init_monitor
 from error_monitor_sdk.integrations.fastapi import enable_fastapi_integration
 
 ENDPOINT = os.environ.get("MONITOR_URL", "http://127.0.0.1:8000")
-PROJECT_ID = os.environ.get("MONITOR_PROJECT_ID", "00000000-0000-0000-0000-000000000001")
+PROJECT_ID = os.environ.get("MONITOR_PROJECT_ID", "00000000-0000-4000-8000-000000000001")
+API_KEY = os.environ.get("MONITOR_API_KEY") or None
 
-init_monitor(endpoint=ENDPOINT, project_id=PROJECT_ID, context={"demo": "fastapi"})
+init_monitor(
+    endpoint=ENDPOINT,
+    project_id=PROJECT_ID,
+    context={"demo": "fastapi"},
+    api_key=API_KEY,
+)
 
 app = FastAPI(title="SDK FastAPI demo")
 

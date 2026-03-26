@@ -18,6 +18,9 @@
   </p>
   <label>Collector URL <input id="base" type="text" size="40" value="http://127.0.0.1:8000" /></label><br /><br />
   <label>Project UUID <input id="project" type="text" size="40" value="00000000-0000-4000-8000-000000000001" /></label><br /><br />
+  <label>API key (если на сервере <code>COLLECTOR_REQUIRE_API_KEY=true</code>)
+    <input id="apikey" type="password" size="40" placeholder="Bearer / X-Api-Key" autocomplete="off" />
+  </label><br /><br />
   <button type="button" id="send">Отправить тестовое событие</button>
   <pre id="out"></pre>
   <script>
@@ -25,6 +28,7 @@
     document.getElementById('send').onclick = async () => {
       const base = document.getElementById('base').value.replace(/\/$/, '');
       const project_id = document.getElementById('project').value.trim();
+      const apiKey = document.getElementById('apikey').value.trim();
       const payload = {
         project_id,
         action: 'browser_fetch_demo',
@@ -42,9 +46,11 @@
         },
       };
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
         const res = await fetch(base + '/track', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(payload),
         });
         const text = await res.text();

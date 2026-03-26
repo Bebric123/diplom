@@ -17,9 +17,13 @@ class Settings(BaseSettings):
     gigachat_auth_key: str
     gigachat_verify_ssl: bool = False
 
-    # Telegram
+    # Telegram (токен бота обязателен; chat_id — опционально: для еженедельных отчётов в «общий» чат)
     telegram_bot_token: str
-    telegram_chat_id: str
+    telegram_chat_id: Optional[str] = None
+
+    # Отчёты / статистика (HTTP); если задан — нужен Bearer или X-Reports-Token
+    reports_api_token: Optional[str] = None
+    weekly_report_enabled: bool = True
 
     # Collector HTTP API
     collector_require_api_key: bool = False

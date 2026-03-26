@@ -16,8 +16,14 @@ from error_monitor_sdk.integrations.starlette import enable_starlette_integratio
 
 ENDPOINT = os.environ.get("MONITOR_URL", "http://127.0.0.1:8000")
 PROJECT_ID = os.environ.get("MONITOR_PROJECT_ID", "00000000-0000-4000-8000-000000000001")
+API_KEY = os.environ.get("MONITOR_API_KEY") or None
 
-init_monitor(endpoint=ENDPOINT, project_id=PROJECT_ID, context={"demo": "starlette"})
+init_monitor(
+    endpoint=ENDPOINT,
+    project_id=PROJECT_ID,
+    context={"demo": "starlette"},
+    api_key=API_KEY,
+)
 
 
 async def home(_: Request):

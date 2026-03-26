@@ -1,5 +1,5 @@
 # backend/src/core/models.py
-from sqlalchemy import Column, UUID, String, Boolean, DateTime, ForeignKey, Text, Integer, ARRAY, UniqueConstraint, Float
+from sqlalchemy import BigInteger, Column, UUID, String, Boolean, DateTime, ForeignKey, Text, Integer, ARRAY, UniqueConstraint, Float
 from sqlalchemy.dialects.postgresql import JSONB, INET
 from sqlalchemy.sql import func
 from .database import Base
@@ -13,6 +13,10 @@ class Project(Base):
     name = Column(String, nullable=False)
     description = Column(Text)
     is_active = Column(Boolean, default=True)
+    # Уведомления об ошибках только в этот чат (Telegram chat id / supergroup id)
+    telegram_chat_id = Column(String(64), nullable=True)
+    # Выбранный при регистрации стек: ["python_fastapi", "react", ...]
+    tech_stack = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -183,6 +187,12 @@ class ErrorTask(Base):
     # Статусы задачи
     is_acknowledged = Column(Boolean, default=False)  # Нажата кнопка "Начать работу"
     is_resolved = Column(Boolean, default=False)      # Нажата кнопка "Решено"
+
+    # Кто взял / кто закрыл (Telegram callback)
+    acknowledged_by_telegram_user_id = Column(BigInteger, nullable=True)
+    acknowledged_by_label = Column(String(255), nullable=True)
+    resolved_by_telegram_user_id = Column(BigInteger, nullable=True)
+    resolved_by_label = Column(String(255), nullable=True)
     
     # Временные метки для статистики
     created_at = Column(DateTime(timezone=True), server_default=func.now())

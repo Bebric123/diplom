@@ -1,11 +1,18 @@
 # Демо и ручная проверка SDK
 
-Коллектор (FastAPI) по умолчанию: `http://127.0.0.1:8000`. Запустите стек (`docker-compose` в `project/docker`) и один раз выполните `sql/seed_demo_project.sql` в базе, чтобы существовал проект с UUID по умолчанию.
+Коллектор (FastAPI) по умолчанию: `http://127.0.0.1:8000`. Запустите стек (`docker-compose` в `project/docker`).
+
+**Регистрация проекта:** откройте в браузере `http://127.0.0.1:8000/register` — выберите стек, укажите **Telegram chat id** группы/чата, куда должен писать бот; получите **project_id** и **API-ключ** для SDK. Уведомления об ошибках уходят только в указанный чат.
+
+Для ручного сида без формы можно выполнить `project/backend/db/seed_collector_security.sql` (демо-ключ `dev-demo-ingest-key`; для алертов в Telegram у демо-проекта всё равно нужно выставить `telegram_chat_id` в БД или зарегистрировать проект через форму).
 
 Переменные окружения (опционально):
 
 - `MONITOR_URL` — URL коллектора (по умолчанию `http://127.0.0.1:8000`)
 - `MONITOR_PROJECT_ID` — UUID проекта (по умолчанию `00000000-0000-4000-8000-000000000001`)
+- `MONITOR_API_KEY` — секрет для коллектора, если включён `COLLECTOR_REQUIRE_API_KEY` (тот же ключ, что в сиде: `dev-demo-ingest-key`)
+
+**Безопасность коллектора (переменные в `.env` бэкенда):** `COLLECTOR_REQUIRE_API_KEY=true` — требовать `Authorization: Bearer …` или `X-Api-Key` для `/track`, `/logs/upload` и чтения логов; `API_KEY_PEPPER` — необязательная строка, добавляемая перед хешированием ключа (тогда в БД храните SHA256(pepper+ключ) в hex); `CORS_ALLOW_ORIGINS` — список через запятую или `*`; `TRUSTED_HOSTS` — доверенные `Host` заголовки; `HSTS_MAX_AGE` — если задан (секунды), отдаётся заголовок HSTS; `GIGACHAT_VERIFY_SSL=true` — проверять TLS к GigaChat (по умолчанию выключено из‑за окружений с кастомными ЦС).
 
 ## Python (`examples/sdk-demos/python`)
 

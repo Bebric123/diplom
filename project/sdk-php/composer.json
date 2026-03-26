@@ -1,0 +1,23 @@
+{
+    "name": "error-monitor/sdk-php",
+    "description": "PHP SDK for Error Monitor collector (/track, logs)",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.1",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "suggest": {
+        "laravel/framework": "^10.0|^11.0|^12.0 for Laravel integration",
+        "symfony/http-kernel": "^6.4|^7.0 for Symfony integration"
+    },
+    "autoload": {
+        "psr-4": {
+            "ErrorMonitor\\": "src/"
+        },
+        "files": [
+            "src/helpers.php"
+        ]
+    }
+}

@@ -4,12 +4,15 @@ import uuid
 from typing import Annotated, Any, Dict, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from src.api.auth import require_project_api_key
+from src.api.auth import reports_token_guard, require_project_api_key
+from src.services.stats_service import aggregate_metrics, build_excel_report, resolve_time_range
+from src.web.onboarding import router as onboarding_router
 from src.core.config import get_settings
 from src.core.database import get_db
 from src.core.models import (
@@ -30,6 +33,19 @@ _MAX_CONTEXT_META_JSON = 65536
 _MAX_LOG_CONTENT_CHARS = 2 * 1024 * 1024
 
 app = FastAPI(title="Error Monitor Collector")
+
+app.include_router(onboarding_router)
+
+
+@app.get("/", include_in_schema=False)
+def root_landing():
+    return HTMLResponse(
+        "<html><body style='font-family:system-ui;max-width:32rem;margin:2rem auto'>"
+        "<h1>Error Monitor</h1>"
+        "<p><a href=\"/register\">Регистрация проекта</a> — получить <code>project_id</code>, API-ключ и привязать Telegram.</p>"
+        "<p><a href=\"/docs\">OpenAPI (Swagger)</a> · <a href=\"/health\">health</a></p>"
+        "</body></html>"
+    )
 
 
 @app.get("/health")
@@ -266,6 +282,7 @@ async def process_log_sync(log_file: LogFile, db: Session):
 
     from src.core.models import ErrorGroup, Platform
     from src.services.notifier import (
+        get_project_telegram_chat_id,
         send_telegram_message_async,
         should_send_notification,
         update_error_group_alert_anchor,
@@ -337,43 +354,52 @@ async def process_log_sync(log_file: LogFile, db: Session):
     severity_log = "средняя"
 
     if should_send_notification(db, error_group.id, severity_log, None):
-        try:
-            await send_telegram_message_async(
-                event={
-                    "title": f"Ошибки в логе: {log_file.filename}",
-                    "severity": severity_log,
-                    "criticality": "требует внимания",
-                    "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
-                    "page_url": f"/logs/{log_file.id}",
-                    "user_id": "system",
-                    "action": "log_analysis",
-                    "context": {
-                        "platform": "backend",
-                        "language": "unknown",
-                        "os_family": log_file.server_name or "unknown",
-                        "browser_family": "server",
-                    },
-                    "meta": {
-                        "filename": log_file.filename,
-                        "errors_count": len(errors),
-                        "warnings_count": len(warnings),
-                        "lines_sent": log_file.lines_sent,
-                        "total_lines": log_file.total_lines,
-                        "environment": log_file.environment,
-                        "server": log_file.server_name,
-                        "service": log_file.service_name,
-                        "first_errors": error_preview,
-                        "log_id": str(log_file.id),
-                    },
-                },
-                error_group_id=error_group.id,
+        tg_chat = get_project_telegram_chat_id(db, log_file.project_id)
+        if not tg_chat:
+            logger.warning(
+                "Project %s: нет telegram_chat_id — синхронный алерт по логу пропущен",
+                log_file.project_id,
             )
-            update_error_group_alert_anchor(db, error_group.id, severity_log)
-            db.commit()
-            logger.info("Log %s processed synchronously, notification sent", log_file.id)
-        except Exception:
-            db.rollback()
-            raise
+        else:
+            try:
+                mid = await send_telegram_message_async(
+                    event={
+                        "title": f"Ошибки в логе: {log_file.filename}",
+                        "severity": severity_log,
+                        "criticality": "требует внимания",
+                        "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
+                        "page_url": f"/logs/{log_file.id}",
+                        "user_id": "system",
+                        "action": "log_analysis",
+                        "context": {
+                            "platform": "backend",
+                            "language": "unknown",
+                            "os_family": log_file.server_name or "unknown",
+                            "browser_family": "server",
+                        },
+                        "meta": {
+                            "filename": log_file.filename,
+                            "errors_count": len(errors),
+                            "warnings_count": len(warnings),
+                            "lines_sent": log_file.lines_sent,
+                            "total_lines": log_file.total_lines,
+                            "environment": log_file.environment,
+                            "server": log_file.server_name,
+                            "service": log_file.service_name,
+                            "first_errors": error_preview,
+                            "log_id": str(log_file.id),
+                        },
+                    },
+                    error_group_id=error_group.id,
+                    telegram_chat_id=tg_chat,
+                )
+                if mid:
+                    update_error_group_alert_anchor(db, error_group.id, severity_log)
+                    db.commit()
+                    logger.info("Log %s processed synchronously, notification sent", log_file.id)
+            except Exception:
+                db.rollback()
+                raise
     else:
         logger.info(
             "Log %s sync path: telegram throttled for group %s",
@@ -448,3 +474,47 @@ async def list_project_logs(
         )
         for log in logs
     ]
+
+
+@app.get("/stats/summary")
+def stats_summary(
+    db: Session = Depends(get_db),
+    _: None = Depends(reports_token_guard),
+    date_from: Annotated[Optional[str], Query(alias="from")] = None,
+    date_to: Annotated[Optional[str], Query(alias="to")] = None,
+    project_id: Annotated[Optional[str], Query()] = None,
+    days: Annotated[int, Query(ge=1, le=366)] = 7,
+):
+    start, end = resolve_time_range(date_from, date_to, default_days=days)
+    pid = None
+    if project_id:
+        try:
+            pid = uuid.UUID(project_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail="Invalid project_id") from e
+    return aggregate_metrics(db, start, end, pid)
+
+
+@app.get("/reports/weekly.xlsx")
+def report_weekly_xlsx(
+    db: Session = Depends(get_db),
+    _: None = Depends(reports_token_guard),
+    date_from: Annotated[Optional[str], Query(alias="from")] = None,
+    date_to: Annotated[Optional[str], Query(alias="to")] = None,
+    project_id: Annotated[Optional[str], Query()] = None,
+    days: Annotated[int, Query(ge=1, le=366)] = 7,
+):
+    start, end = resolve_time_range(date_from, date_to, default_days=days)
+    pid = None
+    if project_id:
+        try:
+            pid = uuid.UUID(project_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail="Invalid project_id") from e
+    blob = build_excel_report(db, start, end, pid)
+    fname = f"report_{start.date()}_{end.date()}.xlsx"
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )

@@ -5,11 +5,13 @@ from datetime import datetime, timezone
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.types import BufferedInputFile
 from sqlalchemy import func
 
 from src.core.database import SessionLocal
 from src.core.models import ErrorTask
 from src.services.notifier import update_telegram_message
+from src.services.stats_service import aggregate_metrics, build_excel_report, default_range_days
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,14 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
+
+
+def _telegram_user_label(user: types.User) -> str:
+    if user.username:
+        return f"@{user.username}"
+    name = " ".join(x for x in (user.first_name, user.last_name) if x).strip()
+    return name or str(user.id)
+
 
 def format_task_id(task_id: uuid.UUID) -> str:
     """Форматирует ID задачи для отображения"""
@@ -54,13 +64,23 @@ async def process_callback(callback_query: types.CallbackQuery):
 
         formatted_id = format_task_id(task_id)
 
+        user = callback_query.from_user
+        if user is None:
+            await callback_query.answer("Не удалось определить пользователя Telegram")
+            return
+
         if action == "ack":
             if task.is_resolved:
                 await callback_query.answer(f"Задача {formatted_id} уже решена", show_alert=False)
                 return
+            if task.is_acknowledged:
+                await callback_query.answer(f"Задача {formatted_id} уже в работе", show_alert=False)
+                return
 
             task.is_acknowledged = True
             task.acknowledged_at = datetime.now(timezone.utc)
+            task.acknowledged_by_telegram_user_id = user.id
+            task.acknowledged_by_label = _telegram_user_label(user)
             db.commit()
 
             await callback_query.answer(f"Задача {formatted_id} взята в работу", show_alert=False)
@@ -72,6 +92,8 @@ async def process_callback(callback_query: types.CallbackQuery):
 
             task.is_resolved = True
             task.resolved_at = datetime.now(timezone.utc)
+            task.resolved_by_telegram_user_id = user.id
+            task.resolved_by_label = _telegram_user_label(user)
             db.commit()
 
             await callback_query.answer(f"Задача {formatted_id} отмечена как решённая", show_alert=False)
@@ -95,7 +117,9 @@ async def cmd_start(message: types.Message):
         "• Отслеживание статуса задач\n"
         "• Кнопки для управления задачами\n\n"
         "🆔 <b>ID задач</b> будут отображаться в формате: <code>550e8400</code>\n\n"
-        "Нажми на кнопку под сообщением об ошибке, чтобы начать работу или отметить задачу как решённую.",
+        "Нажми на кнопку под сообщением об ошибке, чтобы начать работу или отметить задачу как решённую.\n\n"
+        "Команды: /stats — сводка, /report — Excel за 7 дней.\n\n"
+        "Алерты об ошибках уходят в Telegram-чат, который указан при регистрации проекта на сайте коллектора (путь /register).",
         parse_mode="HTML"
     )
 
@@ -141,9 +165,11 @@ async def cmd_task(message: types.Message):
         )
         
         if task.acknowledged_at:
-            response += f"▶️ <b>Взята в работу:</b> {task.acknowledged_at.strftime('%d.%m.%Y %H:%M:%S')}\n"
+            who = task.acknowledged_by_label or "—"
+            response += f"▶️ <b>Взята в работу:</b> {task.acknowledged_at.strftime('%d.%m.%Y %H:%M:%S')} ({who})\n"
         if task.resolved_at:
-            response += f"✅ <b>Решена:</b> {task.resolved_at.strftime('%d.%m.%Y %H:%M:%S')}\n"
+            who_r = task.resolved_by_label or "—"
+            response += f"✅ <b>Решена:</b> {task.resolved_at.strftime('%d.%m.%Y %H:%M:%S')} ({who_r})\n"
         if task.last_notification_sent_at:
             response += f"📨 <b>Последнее уведомление:</b> {task.last_notification_sent_at.strftime('%d.%m.%Y %H:%M:%S')}\n"
         
@@ -154,7 +180,7 @@ async def cmd_task(message: types.Message):
 
 @dp.message(Command("stats"))
 async def cmd_stats(message: types.Message):
-    """Показывает статистику по задачам"""
+    """Сводка за 7 дней + общие счётчики задач."""
     db = SessionLocal()
     try:
         total = db.query(ErrorTask).count()
@@ -168,27 +194,67 @@ async def cmd_stats(message: types.Message):
             ErrorTask.is_resolved.is_(False),
         ).count()
 
-        avg_time = db.query(
-            func.avg(
-                func.extract('epoch', ErrorTask.resolved_at - ErrorTask.created_at)
-            )
-        ).filter(ErrorTask.resolved_at.isnot(None)).scalar()
-        
-        avg_time_str = f"{avg_time/60:.1f} минут" if avg_time else "—"
-        
-        response = (
-            f"📊 <b>Статистика задач</b>\n\n"
-            f"📌 <b>Всего задач:</b> {total}\n"
-            f"✅ <b>Решено:</b> {resolved}\n"
-            f"🔄 <b>В работе:</b> {in_progress}\n"
-            f"⏳ <b>Ожидают:</b> {waiting}\n"
-            f"⏱️ <b>Среднее время решения:</b> {avg_time_str}\n"
+        sec = func.extract("epoch", ErrorTask.resolved_at - ErrorTask.created_at)
+        rmin, rmax, ravg = (
+            db.query(func.min(sec), func.max(sec), func.avg(sec))
+            .filter(ErrorTask.resolved_at.isnot(None))
+            .one()
         )
-        
-        await message.answer(response, parse_mode="HTML")
-        
+
+        def fmt_minutes(sec_val: float | None) -> str:
+            if sec_val is None:
+                return "—"
+            return f"{float(sec_val) / 60.0:.1f} мин"
+
+        start, end = default_range_days(7)
+        m = aggregate_metrics(db, start, end, None)
+
+        lines = [
+            "📊 <b>Статистика</b>",
+            "",
+            "<b>Все время (задачи)</b>",
+            f"📌 Всего: {total} | ✅ решено: {resolved} | 🔄 в работе: {in_progress} | ⏳ ждут: {waiting}",
+            f"⏱️ Время решения (все решённые): min {fmt_minutes(rmin)} | max {fmt_minutes(rmax)} | ср. {fmt_minutes(ravg)}",
+            "",
+            f"<b>За 7 дней</b> ({start.date()} — {end.date()})",
+            f"Событий с ошибкой: {m['events_with_errors']}",
+            f"Задач создано: {m['tasks_created']} | решено: {m['tasks_resolved']}",
+        ]
+        rts = m["resolution_time_seconds"]
+        if rts["avg"] is not None:
+            lines.append(
+                f"⏱️ Решение (задачи за период): min {fmt_minutes(rts['min'])} | max {fmt_minutes(rts['max'])} | ср. {fmt_minutes(rts['avg'])}"
+            )
+        if m["top_domains"][:3]:
+            doms = ", ".join(f"{d['domain']}: {d['count']}" for d in m["top_domains"][:3])
+            lines.append(f"🌍 Чаще по доменам: {doms}")
+        if m["top_who_took_task"][:3]:
+            took = ", ".join(f"{x['label']}: {x['count']}" for x in m["top_who_took_task"][:3])
+            lines.append(f"👷 Больше брали в работу: {took}")
+        if m["top_who_resolved"][:3]:
+            rs = ", ".join(f"{x['label']}: {x['count']}" for x in m["top_who_resolved"][:3])
+            lines.append(f"✅ Больше закрыли: {rs}")
+
+        await message.answer("\n".join(lines), parse_mode="HTML")
     finally:
         db.close()
+
+
+@dp.message(Command("report"))
+async def cmd_report(message: types.Message):
+    """Excel-отчёт за последние 7 дней (как еженедельный)."""
+    db = SessionLocal()
+    try:
+        start, end = default_range_days(7)
+        blob = build_excel_report(db, start, end, None)
+    finally:
+        db.close()
+    cap = f"Отчёт {start.date()} — {end.date()}"
+    fname = f"weekly_{start.date()}_{end.date()}.xlsx"
+    await message.answer_document(
+        BufferedInputFile(blob, filename=fname),
+        caption=cap,
+    )
 
 async def main():
     """Запуск бота"""

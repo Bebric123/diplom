@@ -13,6 +13,7 @@ from error_monitor_sdk.logs import send_log_file
 
 ENDPOINT = os.environ.get("MONITOR_URL", "http://127.0.0.1:8000")
 PROJECT_ID = os.environ.get("MONITOR_PROJECT_ID", "00000000-0000-4000-8000-000000000001")
+API_KEY = os.environ.get("MONITOR_API_KEY") or None
 
 
 def main() -> None:
@@ -20,6 +21,7 @@ def main() -> None:
         endpoint=ENDPOINT,
         project_id=PROJECT_ID,
         context={"environment": "sdk-demo-logs"},
+        api_key=API_KEY,
     )
     with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False, encoding="utf-8") as tmp:
         tmp.write("2025-01-01 info: started\n")

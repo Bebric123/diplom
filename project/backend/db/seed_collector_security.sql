@@ -6,6 +6,8 @@
 --
 -- Включите проверку: COLLECTOR_REQUIRE_API_KEY=true
 -- После применения сида задайте в клиентах MONITOR_API_KEY=dev-demo-ingest-key
+-- Чтобы бот слал алерты в ваш чат, задайте chat id (после миграций с колонкой telegram_chat_id):
+-- UPDATE public.projects SET telegram_chat_id = '-100xxxxxxxxxx' WHERE id = '00000000-0000-4000-8000-000000000001';
 
 INSERT INTO public.projects (id, name, description, is_active)
 VALUES (

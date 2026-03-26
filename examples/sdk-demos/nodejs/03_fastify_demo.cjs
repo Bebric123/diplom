@@ -8,10 +8,12 @@ const { enableFastifyIntegration } = require('error-monitor-sdk/integrations/fas
 
 const endpoint = process.env.MONITOR_URL || 'http://127.0.0.1:8000';
 const projectId = process.env.MONITOR_PROJECT_ID || '00000000-0000-4000-8000-000000000001';
+const apiKey = process.env.MONITOR_API_KEY;
 
 initMonitor({
   endpoint,
   projectId,
+  apiKey,
   context: { demo: 'fastify' },
   debug: true,
 });

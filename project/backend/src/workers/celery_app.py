@@ -1,4 +1,6 @@
 from celery import Celery
+from celery.schedules import crontab
+
 from src.core.config import get_settings
 
 settings = get_settings()
@@ -17,6 +19,12 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     worker_hijack_root_logger=False,
+    beat_schedule={
+        "weekly-stats-report": {
+            "task": "src.workers.tasks.send_weekly_stats_report",
+            "schedule": crontab(day_of_week="mon", hour=8, minute=0),
+        },
+    },
 )
 
 def get_celery_app():

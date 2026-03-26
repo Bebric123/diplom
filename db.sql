@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS public.error_groups
     recommendation text COLLATE pg_catalog."default",
     is_resolved boolean DEFAULT false,
     resolved_at timestamp with time zone,
+    alert_last_sent_at timestamp with time zone,
+    alert_last_severity text COLLATE pg_catalog."default",
     CONSTRAINT error_groups_pkey PRIMARY KEY (id),
     CONSTRAINT error_groups_project_id_group_hash_key UNIQUE (project_id, group_hash)
 );
@@ -161,6 +163,8 @@ CREATE TABLE IF NOT EXISTS public.projects
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     name text COLLATE pg_catalog."default" NOT NULL,
     description text COLLATE pg_catalog."default",
+    telegram_chat_id character varying(64),
+    tech_stack jsonb DEFAULT '[]'::jsonb,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
     is_active boolean DEFAULT true,
