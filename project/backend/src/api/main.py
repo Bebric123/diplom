@@ -43,7 +43,8 @@ def root_landing():
         "<html><body style='font-family:system-ui;max-width:32rem;margin:2rem auto'>"
         "<h1>Error Monitor</h1>"
         "<p><a href=\"/register\">Регистрация проекта</a> — получить <code>project_id</code>, API-ключ и привязать Telegram.</p>"
-        "<p><a href=\"/docs\">OpenAPI (Swagger)</a> · <a href=\"/health\">health</a></p>"
+        "<p><a href=\"/docs/sdk\">Инструкции по SDK</a> (Python, Node, PHP, HTTP, логи) · "
+        "<a href=\"/docs\">OpenAPI (Swagger)</a> · <a href=\"/health\">health</a></p>"
         "</body></html>"
     )
 

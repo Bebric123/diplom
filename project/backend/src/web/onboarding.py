@@ -101,6 +101,12 @@ def _create_project_with_key(
     return project, raw_key
 
 
+@router.get("/docs/sdk", response_class=HTMLResponse)
+def sdk_guide(request: Request):
+    """Боковая панель с инструкциями: языки SDK, HTTP, логи, ошибки."""
+    return templates.TemplateResponse("sdk_guide.html", {"request": request})
+
+
 @router.get("/register", response_class=HTMLResponse)
 def register_form(request: Request):
     return templates.TemplateResponse(
