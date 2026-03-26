@@ -14,18 +14,23 @@ class MonitorClient:
                  endpoint: str, 
                  user_id_func: Optional[Callable] = None, 
                  context: Optional[Dict] = None, 
-                 project_id: Optional[str] = None):
+                 project_id: Optional[str] = None,
+                 api_key: Optional[str] = None):
         self.endpoint = endpoint.rstrip("/")
         self.project_id = project_id or "default-project"
         self.user_id_func = user_id_func
         self.context = context or {}
+        self.api_key = (api_key or "").strip() or None
         self.session = requests.Session()
         
         # Добавляем заголовки
-        self.session.headers.update({
+        headers = {
             "Content-Type": "application/json",
-            "User-Agent": "ErrorMonitor-SDK/1.0"
-        })
+            "User-Agent": "ErrorMonitor-SDK/1.0",
+        }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        self.session.headers.update(headers)
         
         _logger.info(f"MonitorClient initialized for project: {self.project_id}")
     
@@ -187,7 +192,8 @@ def init_monitor(
     endpoint: str,
     project_id: str = "default-project",
     user_id_func: Optional[Callable] = None,
-    context: Optional[Dict[str, Any]] = None
+    context: Optional[Dict[str, Any]] = None,
+    api_key: Optional[str] = None,
 ):
     """
     Инициализирует SDK.
@@ -197,6 +203,7 @@ def init_monitor(
         project_id: Идентификатор проекта
         user_id_func: Функция для получения user_id
         context: Контекст по умолчанию (язык, ОС и т.д.)
+        api_key: Секрет для COLLECTOR_REQUIRE_API_KEY (Bearer / совместим с X-Api-Key на сервере)
     
     Example:
         >>> def get_user():
@@ -213,7 +220,8 @@ def init_monitor(
         endpoint=endpoint,
         project_id=project_id,
         user_id_func=user_id_func,
-        context=context or {}
+        context=context or {},
+        api_key=api_key,
     )
     _logger.info(f"ErrorMonitor SDK initialized for {endpoint} (project: {project_id})")
     return _client

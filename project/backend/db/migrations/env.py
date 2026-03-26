@@ -1,14 +1,27 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+from src.core.config import get_settings
 from src.core.models import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+
+def _configure_sqlalchemy_url() -> None:
+    """URL из окружения (Docker) или из настроек приложения (.env), иначе — из alembic.ini."""
+    if os.environ.get("DATABASE_URL"):
+        config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
+        return
+    try:
+        config.set_main_option("sqlalchemy.url", get_settings().database_url)
+    except Exception:
+        pass
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -39,6 +52,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
+    _configure_sqlalchemy_url()
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -58,6 +72,7 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    _configure_sqlalchemy_url()
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

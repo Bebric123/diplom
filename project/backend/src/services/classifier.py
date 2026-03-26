@@ -69,7 +69,7 @@ URL: {page_url}
             "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
             json=payload,
             headers=headers,
-            verify=False,
+            verify=auth.verify_ssl,
             timeout=15,
         )
         response.raise_for_status()

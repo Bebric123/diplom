@@ -7,6 +7,7 @@ class MonitorClient {
     constructor(options = {}) {
         this.endpoint = options.endpoint?.replace(/\/$/, '') || 'http://localhost:8000';
         this.projectId = options.projectId || 'default-project';
+        this.apiKey = (options.apiKey || options.api_key || '').trim() || null;
         this.userIdFunc = options.userIdFunc || (() => 'anonymous');
         this.context = options.context || {};
         this.debug = options.debug || false;
@@ -34,6 +35,11 @@ class MonitorClient {
             const timestamp = new Date().toISOString();
             console.log(`[${timestamp}] [MonitorSDK] ${message}`, data ? data : '');
         }
+    }
+
+    _authHeaders() {
+        if (!this.apiKey) return {};
+        return { Authorization: `Bearer ${this.apiKey}` };
     }
     
     _error(message, error = null) {
@@ -77,7 +83,8 @@ class MonitorClient {
                 {
                     headers: {
                         'Content-Type': 'application/json',
-                        'User-Agent': 'ErrorMonitor-SDK/1.0 (Node.js)'
+                        'User-Agent': 'ErrorMonitor-SDK/1.0 (Node.js)',
+                        ...this._authHeaders(),
                     },
                     timeout: 5000
                 }

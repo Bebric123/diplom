@@ -132,6 +132,9 @@ class ErrorGroup(Base):
     resolved_at = Column(DateTime(timezone=True))
     first_seen_at = Column(DateTime(timezone=True), server_default=func.now())
     last_seen_at = Column(DateTime(timezone=True), onupdate=func.now())
+    # Троттлинг / дедупликация алертов (одна точка для событий и логов)
+    alert_last_sent_at = Column(DateTime(timezone=True), nullable=True)
+    alert_last_severity = Column(String, nullable=True)
     __table_args__ = (UniqueConstraint('project_id', 'group_hash'),)
 
 # --- Уведомления и аудит ---

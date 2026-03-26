@@ -5,7 +5,7 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from aiogram import Bot
@@ -22,12 +22,12 @@ logger = logging.getLogger(__name__)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Конфигурация троттлинга (в секундах)
+# Троттлинг алертов по нормализованной severity (секунды между повторами для той же группы)
 THROTTLE_CONFIG = {
-    "низкая": 3600,        # 1 час
-    "средняя": 1800,        # 30 минут
-    "высокая": 900,         # 15 минут
-    "критическая": 300      # 5 минут
+    "низкая": 3600,
+    "средняя": 1800,
+    "высокая": 900,
+    "критическая": 300,
 }
 
 def get_platform_emoji(platform: str) -> str:
@@ -150,51 +150,60 @@ def should_send_notification(
     db: Session, error_group_id: uuid.UUID, severity: str, status_code: Optional[int] = None
 ) -> bool:
     """
-    Проверяет, нужно ли отправлять уведомление на основе троттлинга
-    Возвращает True если:
-    1. Это первое уведомление для группы
-    2. Прошло достаточно времени с последнего
-    3. Severity повысился
+    Дедупликация алертов по группе (error_group_id) + троттлинг по времени и severity.
+
+    - Первая отправка по группе (alert_last_sent_at is None) → отправить.
+    - Смена severity → отправить сразу (новый класс риска).
+    - Тот же severity и интервал < THROTTLE_CONFIG → не отправлять.
+    - 404: не слать повторно, если по группе уже есть задача (уже уведомляли).
     """
+    group = db.query(ErrorGroup).filter(ErrorGroup.id == error_group_id).first()
+    if not group:
+        return True
 
     if status_code == 404:
-        task = db.query(ErrorTask).filter(
-            ErrorTask.error_group_id == error_group_id
-        ).first()
-        
-        if task:
-            logger.info(f"ℹ️ 404 error already reported for group {error_group_id}, skipping")
+        if db.query(ErrorTask.id).filter(ErrorTask.error_group_id == error_group_id).first():
+            logger.info("404 already reported for group %s, skipping", error_group_id)
             return False
         return True
 
-    throttle_time = THROTTLE_CONFIG.get(severity, 1800)  # По умолчанию 30 минут
-    
-    # Ищем последнюю задачу для этой группы ошибок
-    task = db.query(ErrorTask).filter(
-        ErrorTask.error_group_id == error_group_id
-    ).order_by(ErrorTask.created_at.desc()).first()
-    
-    if not task:
-        logger.info(f"📨 First notification for group {error_group_id}")
-        return True  # Никогда не отправляли - можно отправлять
-    
-    if task.last_notification_sent_at:
-        # Проверяем, прошло ли достаточно времени
-        time_since_last = datetime.utcnow() - task.last_notification_sent_at.replace(tzinfo=None)
-        
-        # Если severity повысился (например, была "средняя", стала "критическая")
-        # то отправляем сразу, игнорируя троттлинг
-        if task.last_severity != severity:
-            logger.info(f"⚠️ Severity changed from {task.last_severity} to {severity}, sending immediately")
-            return True
-        
-        if time_since_last.total_seconds() < throttle_time:
-            logger.info(f"⏱️ Throttling notification for group {error_group_id}. "
-                       f"Last sent {time_since_last.total_seconds():.0f}s ago, "
-                       f"need {throttle_time}s")
-            return False
-    
+    sev = (severity or "средняя").strip().lower()
+    throttle_time = THROTTLE_CONFIG.get(sev, 1800)
+
+    if group.alert_last_sent_at is None:
+        logger.info("First alert for group %s", error_group_id)
+        return True
+
+    last_sev = (group.alert_last_severity or "").lower()
+    if last_sev != sev:
+        logger.info("Severity changed %s -> %s, send alert", last_sev, sev)
+        return True
+
+    now = datetime.now(timezone.utc)
+    last_at = group.alert_last_sent_at
+    if last_at.tzinfo is None:
+        last_at = last_at.replace(tzinfo=timezone.utc)
+    elapsed = (now - last_at).total_seconds()
+    if elapsed < throttle_time:
+        logger.info(
+            "Throttling group %s: %.0fs < %ss (severity=%s)",
+            error_group_id,
+            elapsed,
+            throttle_time,
+            sev,
+        )
+        return False
     return True
+
+
+def update_error_group_alert_anchor(
+    db: Session, error_group_id: uuid.UUID, severity: str
+) -> None:
+    """Фиксирует время/severity последнего алерта по группе (события и логи)."""
+    g = db.query(ErrorGroup).filter(ErrorGroup.id == error_group_id).first()
+    if g:
+        g.alert_last_sent_at = datetime.now(timezone.utc)
+        g.alert_last_severity = (severity or "средняя").strip().lower()
 
 def create_error_task(db: Session, event_id: uuid.UUID, error_group_id: uuid.UUID, 
                      project_id: uuid.UUID) -> ErrorTask:
@@ -217,11 +226,15 @@ def update_task_notification(db: Session, task_id: uuid.UUID,
         if task:
             # Явно загружаем все нужные атрибуты
             _ = task.id  # принудительно загружаем
-            task.last_notification_sent_at = datetime.utcnow()
+            task.last_notification_sent_at = datetime.now(timezone.utc)
             task.notification_count += 1
             task.telegram_message_id = telegram_message_id
             task.telegram_chat_id = telegram_chat_id
             task.last_severity = severity
+            grp = db.query(ErrorGroup).filter(ErrorGroup.id == task.error_group_id).first()
+            if grp:
+                grp.alert_last_sent_at = task.last_notification_sent_at
+                grp.alert_last_severity = (severity or "средняя").strip().lower()
             db.commit()
             logger.debug(f"Task {task_id} notification updated")
     except Exception as e:
@@ -503,6 +516,7 @@ __all__ = [
     "update_telegram_message",
     "update_telegram_message_sync",
     "should_send_notification",
+    "update_error_group_alert_anchor",
     "create_error_task",
     "update_task_notification",
     "TELEGRAM_CHAT_ID",

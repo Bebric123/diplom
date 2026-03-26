@@ -13,8 +13,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 1s
@@ -34,7 +32,7 @@ services:
         condition: service_started
     env_file:
       - .env
-    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+    command: sh -c "alembic upgrade head && uvicorn src.api.main:app --host 0.0.0.0 --port 8000"
 
   worker:
     build:
@@ -49,7 +47,7 @@ services:
     env_file:
       - .env
     working_dir: /app
-    command: celery -A src.workers.celery_app.celery_app worker --loglevel=info
+    command: sh -c "alembic upgrade head && celery -A src.workers.celery_app.celery_app worker --loglevel=info"
 
   bot:
     build:
@@ -60,7 +58,7 @@ services:
       - db
     env_file:
       - .env
-    command: python -m src.services.telegram_bot
+    command: sh -c "alembic upgrade head && python -m src.services.telegram_bot"
     restart: on-failure
 
 volumes:

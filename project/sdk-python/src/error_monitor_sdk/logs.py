@@ -87,10 +87,13 @@ def _send_log_sync(data: dict):
         logger.error("SDK not initialized, log upload skipped")
         return
     try:
+        headers = {"Content-Type": "application/json"}
+        if getattr(client, "api_key", None):
+            headers["Authorization"] = f"Bearer {client.api_key}"
         response = requests.post(
             f"{client.endpoint}/logs/upload",
             json=data,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             timeout=10,
         )
         if response.status_code == 200:

@@ -24,6 +24,7 @@ from src.services.notifier import (
     create_error_task,
     send_telegram_message_sync,
     should_send_notification,
+    update_error_group_alert_anchor,
     update_task_notification,
 )
 
@@ -45,6 +46,13 @@ def load_reference_data() -> None:
 load_reference_data()
 
 
+def _compact_text(s: str, max_len: int = 8000) -> str:
+    """Стабильный fingerprint для group_hash: схлопываем пробелы."""
+    if not s:
+        return ""
+    return " ".join(str(s).split())[:max_len]
+
+
 def get_or_create_platform(db: Session, name: str) -> uuid.UUID:
     platform = db.query(Platform).filter(Platform.name == name).first()
     if not platform:
@@ -58,6 +66,7 @@ def get_or_create_platform(db: Session, name: str) -> uuid.UUID:
 def normalize_severity(severity_str: str) -> str:
     severity = severity_str.lower().strip()
     severity_map = {
+        "незначительно": "низкая",
         "низкая": "низкая",
         "низкий": "низкая",
         "low": "низкая",
@@ -175,14 +184,17 @@ def process_event(self, event_id: str):
             stack = event.error.error_stack
         elif event.metadata_:
             stack = event.metadata_.get("stack_trace", "")
+        stack = _compact_text(stack)
 
         error_type = "unknown"
         if event.error and event.error.error_message:
-            error_type = event.error.error_message.split("\n")[0][:100]
+            error_type = _compact_text(event.error.error_message.split("\n")[0][:500])
         elif event.metadata_:
-            error_type = event.metadata_.get("error_message", "unknown")
+            error_type = _compact_text(str(event.metadata_.get("error_message", "unknown"))[:500])
 
-        group_hash = hashlib.sha256(f"{error_type}{stack}{page_url}".encode()).hexdigest()
+        group_hash = hashlib.sha256(
+            f"{error_type}|{stack}|{page_url}".encode()
+        ).hexdigest()
 
         error_group = db.execute(
             select(ErrorGroup).where(
@@ -309,8 +321,10 @@ def process_log_file(self, log_id: str):
         logger.info("Log analysis: %s errors, %s warnings", len(errors), len(warnings))
 
         if errors:
-            error_text = "\n".join(errors[:5])
-            group_hash = hashlib.sha256(f"{log_file.filename}{error_text}".encode()).hexdigest()
+            error_text = _compact_text("\n".join(errors[:5]).replace("\n", " "))
+            group_hash = hashlib.sha256(
+                f"{log_file.filename}|{error_text}".encode()
+            ).hexdigest()
 
             error_group = (
                 db.query(ErrorGroup)
@@ -357,39 +371,45 @@ def process_log_file(self, log_id: str):
             db.commit()
 
             error_preview = "\n".join(errors[:3]) if errors else "No errors"
+            severity_log = "средняя"
 
-            send_telegram_message_sync(
-                event={
-                    "title": f"Ошибки в логе: {log_file.filename}",
-                    "severity": "средняя",
-                    "criticality": "требует внимания",
-                    "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
-                    "page_url": f"/logs/{log_id}",
-                    "user_id": "system",
-                    "action": "log_analysis",
-                    "context": {
-                        "platform": "backend",
-                        "language": "unknown",
-                        "os_family": log_file.server_name or "unknown",
-                        "browser_family": "server",
+            if should_send_notification(db, error_group.id, severity_log, None):
+                message_id = send_telegram_message_sync(
+                    event={
+                        "title": f"Ошибки в логе: {log_file.filename}",
+                        "severity": severity_log,
+                        "criticality": "требует внимания",
+                        "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
+                        "page_url": f"/logs/{log_id}",
+                        "user_id": "system",
+                        "action": "log_analysis",
+                        "context": {
+                            "platform": "backend",
+                            "language": "unknown",
+                            "os_family": log_file.server_name or "unknown",
+                            "browser_family": "server",
+                        },
+                        "meta": {
+                            "filename": log_file.filename,
+                            "errors_count": len(errors),
+                            "warnings_count": len(warnings),
+                            "lines_sent": log_file.lines_sent,
+                            "total_lines": log_file.total_lines,
+                            "environment": log_file.environment,
+                            "server": log_file.server_name,
+                            "service": log_file.service_name,
+                            "first_errors": error_preview,
+                            "log_id": str(log_file.id),
+                        },
                     },
-                    "meta": {
-                        "filename": log_file.filename,
-                        "errors_count": len(errors),
-                        "warnings_count": len(warnings),
-                        "lines_sent": log_file.lines_sent,
-                        "total_lines": log_file.total_lines,
-                        "environment": log_file.environment,
-                        "server": log_file.server_name,
-                        "service": log_file.service_name,
-                        "first_errors": error_preview,
-                        "log_id": str(log_file.id),
-                    },
-                },
-                error_group_id=error_group.id,
-            )
-
-            logger.info("Telegram notification sent for log %s", log_id)
+                    error_group_id=error_group.id,
+                )
+                if message_id:
+                    update_error_group_alert_anchor(db, error_group.id, severity_log)
+                    db.commit()
+                logger.info("Telegram notification sent for log %s", log_id)
+            else:
+                logger.info("Log telegram throttled for group %s", error_group.id)
         else:
             logger.info("No errors found in log %s", log_id)
 

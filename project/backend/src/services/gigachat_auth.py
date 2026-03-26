@@ -1,14 +1,17 @@
-import os
 import requests
 import time
 import uuid
 
+from src.core.config import get_settings
+
 
 class GigaChatAuth:
     def __init__(self):
-        self.credentials = os.getenv("GIGACHAT_AUTH_KEY")
+        s = get_settings()
+        self.credentials = s.gigachat_auth_key
         if not self.credentials:
             raise ValueError("GIGACHAT_AUTH_KEY не задан в .env")
+        self.verify_ssl = s.gigachat_verify_ssl
 
         self._access_token = None
         self._expires_at = 0
@@ -28,7 +31,7 @@ class GigaChatAuth:
         }
         data = {"scope": "GIGACHAT_API_PERS"}
 
-        response = requests.post(url, headers=headers, data=data, verify=False)
+        response = requests.post(url, headers=headers, data=data, verify=self.verify_ssl)
         response.raise_for_status()
 
         token_data = response.json()

@@ -67,6 +67,9 @@ function sendLogFile(client, filepath, options = {}) {
         headers: {
           'Content-Type': 'application/json',
           'User-Agent': 'ErrorMonitor-SDK/1.0 (Node.js logs)',
+          ...(client.apiKey
+            ? { Authorization: `Bearer ${client.apiKey}` }
+            : {}),
         },
         timeout: 10000,
       })

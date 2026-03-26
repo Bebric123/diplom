@@ -1,11 +1,15 @@
+import json
 import logging
 import uuid
-from typing import Any, Dict, Optional
+from typing import Annotated, Any, Dict, Optional
 
-from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
+from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from src.api.auth import require_project_api_key
 from src.core.config import get_settings
 from src.core.database import get_db
 from src.core.models import (
@@ -18,10 +22,59 @@ from src.core.models import (
     Project,
 )
 
-app = FastAPI()
 logger = logging.getLogger("collector")
 settings = get_settings()
 logger.info("REDIS_URL from settings: %s", settings.redis_url)
+
+_MAX_CONTEXT_META_JSON = 65536
+_MAX_LOG_CONTENT_CHARS = 2 * 1024 * 1024
+
+app = FastAPI(title="Error Monitor Collector")
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+if settings.trusted_hosts_list():
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=settings.trusted_hosts_list(),
+    )
+
+_cors = settings.cors_origins_list()
+if _cors:
+    if _cors == ["*"]:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "X-Api-Key"],
+        )
+    else:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=_cors,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "X-Api-Key"],
+        )
+
+
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if settings.hsts_max_age and settings.hsts_max_age > 0:
+        response.headers["Strict-Transport-Security"] = (
+            f"max-age={settings.hsts_max_age}; includeSubDomains"
+        )
+    return response
 
 
 def get_platform_id(db: Session, platform_name: str) -> uuid.UUID:
@@ -34,19 +87,41 @@ def get_platform_id(db: Session, platform_name: str) -> uuid.UUID:
 
 
 class EventCreate(BaseModel):
-    project_id: str
-    action: str
-    timestamp: str
-    context: Dict[str, Any]
-    meta: Dict[str, Any]
+    model_config = ConfigDict(extra="ignore")
+
+    project_id: str = Field(..., max_length=64)
+    action: str = Field(..., max_length=512)
+    timestamp: str = Field(..., max_length=80)
+    context: Dict[str, Any] = Field(default_factory=dict)
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _limit_payload_size(self):
+        for name in ("context", "meta"):
+            raw = json.dumps(getattr(self, name), ensure_ascii=False)
+            if len(raw) > _MAX_CONTEXT_META_JSON:
+                raise ValueError(f"{name} payload too large")
+        return self
 
 
 @app.post("/track")
-async def track_event(event_data: EventCreate, db: Session = Depends(get_db)):
+async def track_event(
+    event_data: EventCreate,
+    db: Session = Depends(get_db),
+    authorization: Annotated[Optional[str], Header()] = None,
+    x_api_key: Annotated[Optional[str], Header(alias="X-Api-Key")] = None,
+):
     try:
         project_uuid = uuid.UUID(event_data.project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid project_id") from e
+
+    api_key_row = require_project_api_key(db, project_uuid, authorization, x_api_key)
+
+    try:
         event = Event(
             project_id=project_uuid,
+            api_key_id=api_key_row.id if api_key_row else None,
             action=event_data.action,
             timestamp=event_data.timestamp,
             metadata_=event_data.meta,
@@ -103,15 +178,17 @@ async def track_event(event_data: EventCreate, db: Session = Depends(get_db)):
 
 
 class LogFileCreate(BaseModel):
-    project_id: str
-    filename: str
-    content: str
-    lines_sent: int
-    total_lines: Optional[int] = None
-    server_name: Optional[str] = None
-    service_name: Optional[str] = None
-    environment: Optional[str] = "production"
-    error_group_id: Optional[str] = None
+    model_config = ConfigDict(extra="ignore")
+
+    project_id: str = Field(..., max_length=64)
+    filename: str = Field(..., max_length=512)
+    content: str = Field(..., max_length=_MAX_LOG_CONTENT_CHARS)
+    lines_sent: int = Field(..., ge=0, le=10_000_000)
+    total_lines: Optional[int] = Field(default=None, ge=0, le=10_000_000)
+    server_name: Optional[str] = Field(default=None, max_length=256)
+    service_name: Optional[str] = Field(default=None, max_length=256)
+    environment: Optional[str] = Field(default="production", max_length=64)
+    error_group_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class LogFileResponse(BaseModel):
@@ -125,14 +202,26 @@ class LogFileResponse(BaseModel):
 
 
 @app.post("/logs/upload")
-async def upload_log(log_data: LogFileCreate, db: Session = Depends(get_db)):
+async def upload_log(
+    log_data: LogFileCreate,
+    db: Session = Depends(get_db),
+    authorization: Annotated[Optional[str], Header()] = None,
+    x_api_key: Annotated[Optional[str], Header(alias="X-Api-Key")] = None,
+):
     try:
-        project = db.query(Project).filter(Project.id == uuid.UUID(log_data.project_id)).first()
+        project_uuid = uuid.UUID(log_data.project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid project_id") from e
+
+    require_project_api_key(db, project_uuid, authorization, x_api_key)
+
+    try:
+        project = db.query(Project).filter(Project.id == project_uuid).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
         log_file = LogFile(
-            project_id=uuid.UUID(log_data.project_id),
+            project_id=project_uuid,
             filename=log_data.filename,
             content=log_data.content,
             lines_sent=log_data.lines_sent,
@@ -166,17 +255,26 @@ async def upload_log(log_data: LogFileCreate, db: Session = Depends(get_db)):
     except HTTPException:
         db.rollback()
         raise
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.exception("Error uploading log file: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        logger.exception("Error uploading log file")
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
 async def process_log_sync(log_file: LogFile, db: Session):
     import hashlib
 
     from src.core.models import ErrorGroup, Platform
-    from src.services.notifier import send_telegram_message_async
+    from src.services.notifier import (
+        send_telegram_message_async,
+        should_send_notification,
+        update_error_group_alert_anchor,
+    )
+
+    def _compact_text(s: str, max_len: int = 8000) -> str:
+        if not s:
+            return ""
+        return " ".join(str(s).split())[:max_len]
 
     content = log_file.content
     lines = content.split("\n")
@@ -194,8 +292,10 @@ async def process_log_sync(log_file: LogFile, db: Session):
         logger.info("No errors found in log %s", log_file.id)
         return
 
-    error_text = "\n".join(errors[:5])
-    group_hash = hashlib.sha256(f"{log_file.filename}{error_text}".encode()).hexdigest()
+    error_text = _compact_text("\n".join(errors[:5]).replace("\n", " "))
+    group_hash = hashlib.sha256(
+        f"{log_file.filename}|{error_text}".encode()
+    ).hexdigest()
 
     error_group = (
         db.query(ErrorGroup)
@@ -234,43 +334,61 @@ async def process_log_sync(log_file: LogFile, db: Session):
     db.commit()
 
     error_preview = "\n".join(errors[:3])
+    severity_log = "средняя"
 
-    await send_telegram_message_async(
-        event={
-            "title": f"Ошибки в логе: {log_file.filename}",
-            "severity": "средняя",
-            "criticality": "требует внимания",
-            "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
-            "page_url": f"/logs/{log_file.id}",
-            "user_id": "system",
-            "action": "log_analysis",
-            "context": {
-                "platform": "backend",
-                "language": "unknown",
-                "os_family": log_file.server_name or "unknown",
-                "browser_family": "server",
-            },
-            "meta": {
-                "filename": log_file.filename,
-                "errors_count": len(errors),
-                "warnings_count": len(warnings),
-                "lines_sent": log_file.lines_sent,
-                "total_lines": log_file.total_lines,
-                "environment": log_file.environment,
-                "server": log_file.server_name,
-                "service": log_file.service_name,
-                "first_errors": error_preview,
-                "log_id": str(log_file.id),
-            },
-        },
-        error_group_id=error_group.id,
-    )
-
-    logger.info("Log %s processed synchronously, notification sent", log_file.id)
+    if should_send_notification(db, error_group.id, severity_log, None):
+        try:
+            await send_telegram_message_async(
+                event={
+                    "title": f"Ошибки в логе: {log_file.filename}",
+                    "severity": severity_log,
+                    "criticality": "требует внимания",
+                    "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
+                    "page_url": f"/logs/{log_file.id}",
+                    "user_id": "system",
+                    "action": "log_analysis",
+                    "context": {
+                        "platform": "backend",
+                        "language": "unknown",
+                        "os_family": log_file.server_name or "unknown",
+                        "browser_family": "server",
+                    },
+                    "meta": {
+                        "filename": log_file.filename,
+                        "errors_count": len(errors),
+                        "warnings_count": len(warnings),
+                        "lines_sent": log_file.lines_sent,
+                        "total_lines": log_file.total_lines,
+                        "environment": log_file.environment,
+                        "server": log_file.server_name,
+                        "service": log_file.service_name,
+                        "first_errors": error_preview,
+                        "log_id": str(log_file.id),
+                    },
+                },
+                error_group_id=error_group.id,
+            )
+            update_error_group_alert_anchor(db, error_group.id, severity_log)
+            db.commit()
+            logger.info("Log %s processed synchronously, notification sent", log_file.id)
+        except Exception:
+            db.rollback()
+            raise
+    else:
+        logger.info(
+            "Log %s sync path: telegram throttled for group %s",
+            log_file.id,
+            error_group.id,
+        )
 
 
 @app.get("/logs/{log_id}")
-async def get_log(log_id: str, db: Session = Depends(get_db)):
+async def get_log(
+    log_id: str,
+    db: Session = Depends(get_db),
+    authorization: Annotated[Optional[str], Header()] = None,
+    x_api_key: Annotated[Optional[str], Header(alias="X-Api-Key")] = None,
+):
     try:
         log_uuid = uuid.UUID(log_id)
     except ValueError as e:
@@ -279,6 +397,8 @@ async def get_log(log_id: str, db: Session = Depends(get_db)):
     log_file = db.query(LogFile).filter(LogFile.id == log_uuid).first()
     if not log_file:
         raise HTTPException(status_code=404, detail="Log not found")
+
+    require_project_api_key(db, log_file.project_id, authorization, x_api_key)
 
     return LogFileResponse(
         id=str(log_file.id),
@@ -294,14 +414,18 @@ async def get_log(log_id: str, db: Session = Depends(get_db)):
 @app.get("/projects/{project_id}/logs")
 async def list_project_logs(
     project_id: str,
-    limit: int = 50,
-    offset: int = 0,
     db: Session = Depends(get_db),
+    authorization: Annotated[Optional[str], Header()] = None,
+    x_api_key: Annotated[Optional[str], Header(alias="X-Api-Key")] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
 ):
     try:
         proj_uuid = uuid.UUID(project_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail="Invalid project id") from e
+
+    require_project_api_key(db, proj_uuid, authorization, x_api_key)
 
     logs = (
         db.query(LogFile)
