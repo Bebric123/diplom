@@ -202,7 +202,7 @@
           <p>Есть <strong>два независимых способа</strong> работы с коллектором — их не нужно смешивать в одном «потоке», хотя в одном приложении можно использовать оба параллельно:</p>
           <ol>
             <li><strong>События и ошибки</strong> — <code>POST /track</code>. События (<code>track_event</code>), ручной вызов <code>capture_exception</code>, middleware (FastAPI и т.д.) отправляют JSON о действии или исключении. Это не загрузка файла лога.</li>
-            <li><strong>Файлы логов</strong> — <code>POST /logs/upload</code>. Отдельный endpoint: вы передаёте текст лога (например последние <em>N</em> строк). В SDK это сейчас реализовано удобнее всего для <strong>Python</strong> (<code>send_log_file</code>); остальные стеки — через HTTP или свой код.</li>
+            <li><strong>Файлы логов</strong> — <code>POST /logs/upload</code>. Отдельный endpoint: вы передаёте текст лога (например последние <em>N</em> строк). Хелперы: <strong>Python</strong> <code>send_log_file</code>, <strong>Node</strong> <code>sendLogFile</code>, <strong>PHP</strong> <code>send_log_file</code> (с проверкой лимитов); иначе — сырой HTTP.</li>
           </ol>
           <p>Авторизация везде одна: API-ключ из <a href="/register">регистрации</a> — <code>Authorization: Bearer &lt;ключ&gt;</code> или <code>X-Api-Key</code> (как настроено на сервере).</p>
         </div>
@@ -210,7 +210,7 @@
           <p>There are <strong>two separate integration paths</strong> (you can use both in one app, but they are different APIs):</p>
           <ol>
             <li><strong>Events &amp; errors</strong> — <code>POST /track</code> (<code>track_event</code>, <code>capture_exception</code>, framework middleware). Not log-file upload.</li>
-            <li><strong>Log files</strong> — <code>POST /logs/upload</code>. You send log text (e.g. last <em>N</em> lines). First-class helper today is <strong>Python</strong> <code>send_log_file</code>; other stacks use HTTP or custom code.</li>
+            <li><strong>Log files</strong> — <code>POST /logs/upload</code>. Helpers: Python <code>send_log_file</code>, Node <code>sendLogFile</code>, PHP <code>send_log_file</code> (validated); else raw HTTP.</li>
           </ol>
           <p>Auth everywhere: API key — <code>Authorization: Bearer …</code> or <code>X-Api-Key</code>.</p>
         </div>
@@ -367,10 +367,10 @@ sdk.trackEvent('server_start', { pid: process.pid });
       <section id="php">
         <h2>PHP</h2>
         <div class="lang-ru">
-          <p>Установка — <a href="#install">Composer (path)</a>. Сейчас SDK покрывает <strong>события и исключения</strong> (<code>/track</code>): <code>init_monitor</code>, <code>track_event</code>, <code>capture_exception</code>. Отдельной функции «прочитать файл и отправить последние N строк» в PHP SDK пока нет — логи на коллектор можно слать <a href="#logs">сырым HTTP</a> на <code>/logs/upload</code>.</p>
+          <p>Установка — <a href="#install">Composer (path)</a>. <strong>События и ошибки</strong> (<code>/track</code>): <code>init_monitor</code>, <code>track_event</code>, <code>capture_exception</code>. <strong>Логи</strong> — <code>send_log_file()</code> (после <code>init_monitor</code>) или <code>ErrorMonitor\Logs::sendLogFile()</code>; перед отправкой проверяются лимиты коллектора (<code>Logs::validateUploadPayload</code>).</p>
         </div>
         <div class="lang-en">
-          <p>Install via Composer (see <a href="#install">above</a>). The PHP SDK focuses on <code>/track</code> (events + exceptions). No built-in log-tail helper yet — use <a href="#logs">raw HTTP</a> for <code>/logs/upload</code>.</p>
+          <p>Composer path install. <code>/track</code>: <code>init_monitor</code>, <code>track_event</code>, <code>capture_exception</code>. Logs: <code>send_log_file()</code> or <code>Logs::sendLogFile()</code> with payload validation.</p>
         </div>
         <pre><code>&lt;?php
 require_once 'vendor/autoload.php';
@@ -480,11 +480,11 @@ try {
         <h2 class="lang-ru">Логи (файлы) — <code>/logs/upload</code></h2>
         <h2 class="lang-en">Log files — <code>/logs/upload</code></h2>
         <div class="lang-ru">
-          <p>Это <strong>не</strong> <code>/track</code>: вы отправляете <strong>текст лога</strong> (часто последние строки файла), чтобы на стороне коллектора его проанализировать. В Python из приложения удобно вызвать <code>send_log_file(путь, lines=N, …)</code> — SDK сам прочитает хвост файла и соберёт JSON. В Node — <code>sendLogFile</code> после <code>initMonitor</code>. Типичный сценарий: при ошибке в обработчике дополнительно отправить последние <em>N</em> строк <code>app.log</code>.</p>
+          <p>Это <strong>не</strong> <code>/track</code>: вы отправляете <strong>текст лога</strong> (часто последние строки файла), чтобы на стороне коллектора его проанализировать. В Python — <code>send_log_file(путь, lines=N, …)</code>; в Node — <code>sendLogFile</code> после <code>initMonitor</code>; в PHP — <code>send_log_file($path, $lines, ['service_name' => …])</code> (валидация полей и размера до запроса). Типичный сценарий: при ошибке дополнительно отправить последние <em>N</em> строк <code>app.log</code>.</p>
           <p>Поля JSON: <code>project_id</code>, <code>filename</code>, <code>content</code>, <code>lines_sent</code>, опционально <code>total_lines</code>, <code>server_name</code>, <code>service_name</code>, <code>environment</code>, <code>error_group_id</code>.</p>
         </div>
         <div class="lang-en">
-          <p><strong>Not</strong> <code>/track</code>: you send <strong>log text</strong> (often the tail of a file). Python: <code>send_log_file(path, lines=N)</code>; Node: <code>sendLogFile</code> after <code>initMonitor</code>. Typical: on failure, attach the last <em>N</em> lines of <code>app.log</code>.</p>
+          <p><strong>Not</strong> <code>/track</code>: log text (often file tail). Python <code>send_log_file</code>; Node <code>sendLogFile</code>; PHP <code>send_log_file</code> with validation. Typical: on failure, last <em>N</em> lines of <code>app.log</code>.</p>
           <p>JSON: <code>project_id</code>, <code>filename</code>, <code>content</code>, <code>lines_sent</code>, optional <code>total_lines</code>, <code>server_name</code>, <code>service_name</code>, <code>environment</code>, <code>error_group_id</code>.</p>
         </div>
         <pre><code>curl -sS -X POST "https://YOUR_COLLECTOR/logs/upload" \

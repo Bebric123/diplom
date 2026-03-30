@@ -174,6 +174,7 @@ class MonitorClient {
         const errorMetadata = {
             exception_type: error.name || 'Error',
             error_message: error.message,
+            error_stack: error.stack,
             stack_trace: error.stack,
             ...metadata
         };

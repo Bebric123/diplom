@@ -42,3 +42,13 @@ function set_context(array $context): void
 {
     Monitor::get()->mergeContext($context);
 }
+
+/**
+ * Последние $lines строк лог-файла на POST /logs/upload (после init_monitor).
+ *
+ * @param array{server_name?: string|null, service_name?: string|null, environment?: string|null, error_group_id?: string|null} $options
+ */
+function send_log_file(string $filepath, int $lines = 50, array $options = []): bool
+{
+    return Logs::sendLogFile(Monitor::get(), $filepath, $lines, $options);
+}

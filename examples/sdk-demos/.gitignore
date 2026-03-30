@@ -1,0 +1,3 @@
+# Локальные секреты (шаблон — .env.example)
+.env
+.env.local

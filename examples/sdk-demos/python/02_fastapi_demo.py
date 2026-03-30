@@ -3,6 +3,7 @@
 GET /boom — искусственная ошибка (уйдёт в мониторинг при capture_errors).
 
 Запуск:
+  pip install -r requirements.txt   # editable SDK из ../../../project/sdk-python
   python 02_fastapi_demo.py
   или: uvicorn 02_fastapi_demo:app --host 127.0.0.1 --port 8010
 """
@@ -12,12 +13,12 @@ import os
 
 from fastapi import FastAPI
 
-from error_monitor_sdk import init_monitor
+from demo_init import init_monitor
 from error_monitor_sdk.integrations.fastapi import enable_fastapi_integration
 
 ENDPOINT = os.environ.get("MONITOR_URL", "http://127.0.0.1:8000")
-PROJECT_ID = os.environ.get("MONITOR_PROJECT_ID", "00000000-0000-4000-8000-000000000001")
-API_KEY = os.environ.get("MONITOR_API_KEY") or None
+PROJECT_ID = os.environ.get("MONITOR_PROJECT_ID", "3834e217-7416-46c3-a1e0-c47ce9b8642f")
+API_KEY = os.environ.get("MONITOR_API_KEY", "FjEbQ-Tfj9LLBRGDyaJRwO3tI4YV0fOToOxOyiKCoG4")
 
 init_monitor(
     endpoint=ENDPOINT,

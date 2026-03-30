@@ -1,0 +1,25 @@
+{
+    "name": "monitor/sdk-demos-php",
+    "description": "Ручные проверки PHP SDK (error-monitor/sdk-php)",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.1",
+        "ext-curl": "*",
+        "ext-json": "*",
+        "error-monitor/sdk-php": "@dev",
+        "slim/slim": "^4.12",
+        "slim/psr7": "^1.7"
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../../../project/sdk-php"
+        }
+    ],
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    }
+}

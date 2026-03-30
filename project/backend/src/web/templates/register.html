@@ -34,7 +34,7 @@
 
     <label for="telegram_chat_id">Telegram chat id</label>
     <input type="text" id="telegram_chat_id" name="telegram_chat_id" required placeholder="-1001234567890" inputmode="numeric" />
-    <p class="hint">Для группы: добавьте бота в группу, напишите любое сообщение, затем откройте <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> и найдите <code>chat.id</code>. Для личного чата — ваш числовой id (например через @userinfobot).</p>
+    <p class="hint">Как узнать id группы: добавьте бота в группу, напишите в группу любое сообщение, откройте в браузере <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> и в JSON найдите <code>chat.id</code> — подставляйте его <strong>целиком</strong> (часто для супергрупп это <code>-100…</code>, для старых обычных групп — просто отрицательное число <strong>без</strong> <code>100</code> в середине). Число из «информации о группе» в клиенте Telegram может не совпадать с id для API. Токен в <code>.env</code> должен быть от <strong>того же</strong> бота, что добавлен в группу.</p>
 
     <label>Стек (можно несколько)</label>
     <div class="grid">

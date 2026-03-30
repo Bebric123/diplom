@@ -24,6 +24,17 @@ def _bot_token() -> str:
     return get_settings().telegram_bot_token
 
 
+def _telegram_chat_id_for_api(chat_id: str):
+    """
+    Telegram Bot API для числовых чатов ожидает целое (супергруппа −100…, группа −…).
+    Строка с пробелами или неверный формат — источник «chat not found».
+    """
+    s = str(chat_id).strip().replace(" ", "")
+    if re.fullmatch(r"-?\d{1,20}", s):
+        return int(s)
+    return s
+
+
 def get_project_telegram_chat_id(db: Session, project_id: uuid.UUID) -> Optional[str]:
     """Chat id для алертов по проекту (из регистрации). Без него уведомления не отправляются."""
     p = db.query(Project).filter(Project.id == project_id).first()
@@ -366,7 +377,7 @@ async def send_telegram_message_async(
         logger.warning("Telegram: нет chat_id проекта, уведомление пропущено (group=%s)", error_group_id)
         return None
 
-    chat_id = str(telegram_chat_id).strip()
+    chat_id = _telegram_chat_id_for_api(telegram_chat_id)
     bot = Bot(token=_bot_token())
     ts = str(int(time.time()))
     
@@ -461,7 +472,7 @@ async def update_telegram_message(task_id: uuid.UUID):
 
             try:
                 await bot.edit_message_text(
-                    chat_id=task.telegram_chat_id,
+                    chat_id=_telegram_chat_id_for_api(task.telegram_chat_id),
                     message_id=task.telegram_message_id,
                     text=updated_message,
                     parse_mode="HTML",

@@ -1,0 +1,18 @@
+{
+  "name": "monitor-sdk-demo-vue",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "error-monitor-sdk": "file:../../../../project/sdk-js",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0",
+    "vite": "^5.4.0"
+  }
+}

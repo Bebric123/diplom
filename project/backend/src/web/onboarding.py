@@ -35,17 +35,17 @@ STACK_CHOICES = [
     {"value": "react", "label": "React"},
     {"value": "vue", "label": "Vue"},
     {"value": "angular", "label": "Angular"},
-    {"value": "mobile_react_native", "label": "React Native"},
-    {"value": "mobile_flutter", "label": "Flutter"},
-    {"value": "dotnet", "label": ".NET"},
-    {"value": "java_spring", "label": "Java / Spring"},
-    {"value": "go", "label": "Go"},
     {"value": "php", "label": "PHP"},
     {"value": "other", "label": "Другое"},
 ]
 
 _ALLOWED = {c["value"] for c in STACK_CHOICES}
 _CHAT_ID_RE = re.compile(r"^-?\d{6,}$")
+
+
+def _normalize_telegram_chat_id(raw: str) -> str:
+    """Убираем пробелы (как в UI Telegram «5 162 182 296»)."""
+    return (raw or "").strip().replace(" ", "")
 
 
 class RegisterApiBody(BaseModel):
@@ -56,7 +56,7 @@ class RegisterApiBody(BaseModel):
     @field_validator("telegram_chat_id")
     @classmethod
     def chat_ok(cls, v: str) -> str:
-        s = v.strip()
+        s = _normalize_telegram_chat_id(v)
         if not _CHAT_ID_RE.match(s):
             raise ValueError("Некорректный Telegram chat id (только цифры, для групп с минусом в начале)")
         return s
@@ -123,7 +123,7 @@ def register_submit(
     telegram_chat_id: str = Form(...),
     stack: List[str] = Form(default=[]),
 ):
-    tid = (telegram_chat_id or "").strip()
+    tid = _normalize_telegram_chat_id(telegram_chat_id)
     if not _CHAT_ID_RE.match(tid):
         return templates.TemplateResponse(
             "register.html",

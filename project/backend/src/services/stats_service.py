@@ -257,6 +257,13 @@ def send_excel_to_telegram(xlsx_bytes: bytes, caption: str, filename: str) -> No
         return
     url = f"https://api.telegram.org/bot{s.telegram_bot_token}/sendDocument"
     files = {"document": (filename, xlsx_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
-    data = {"chat_id": str(s.telegram_chat_id).strip(), "caption": caption[:1024]}
+    tid = str(s.telegram_chat_id).strip().replace(" ", "")
+    if tid.startswith("-") and tid[1:].isdigit():
+        chat_id_val = int(tid)
+    elif tid.isdigit():
+        chat_id_val = int(tid)
+    else:
+        chat_id_val = tid
+    data = {"chat_id": chat_id_val, "caption": caption[:1024]}
     resp = requests.post(url, files=files, data=data, timeout=120)
     resp.raise_for_status()

@@ -41,6 +41,21 @@ final class Client
         $this->globalContext = array_merge($this->globalContext, $extra);
     }
 
+    public function getProjectId(): string
+    {
+        return $this->projectId;
+    }
+
+    /**
+     * Очередь POST /logs/upload (JSON уже проверен через Logs::validateUploadPayload).
+     *
+     * @internal
+     */
+    public function postLogsUploadJson(string $json): void
+    {
+        $this->queuePostJson('/logs/upload', $json);
+    }
+
     /**
      * @param array<string, mixed> $metadata
      * @param array<string, mixed> $contextOverride
@@ -98,7 +113,8 @@ final class Client
             'meta' => $meta,
         ];
 
-        $this->postTrackAsync($payload);
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $this->queuePostJson('/track', $json);
     }
 
     /**
@@ -122,18 +138,15 @@ final class Client
 
     /**
      * Отправка в фоне через shutdown (не блокирует ответ пользователю, если возможно).
-     *
-     * @param array<string, mixed> $payload
      */
-    private function postTrackAsync(array $payload): void
+    private function queuePostJson(string $path, string $json): void
     {
-        $endpoint = $this->endpoint;
+        $base = $this->endpoint;
         $apiKey = $this->apiKey;
-        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-
+        $path = str_starts_with($path, '/') ? $path : '/' . $path;
         register_shutdown_function(
-            static function () use ($endpoint, $apiKey, $json): void {
-                self::postJsonSync($endpoint . '/track', $json, $apiKey);
+            static function () use ($base, $path, $apiKey, $json): void {
+                self::postJsonSync($base . $path, $json, $apiKey);
             }
         );
     }
@@ -159,7 +172,7 @@ final class Client
             CURLOPT_POSTFIELDS => $json,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 5,
+            CURLOPT_TIMEOUT => str_contains($url, '/logs/upload') ? 30 : 5,
             CURLOPT_CONNECTTIMEOUT => 2,
         ]);
         curl_exec($ch);

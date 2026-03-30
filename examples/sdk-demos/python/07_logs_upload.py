@@ -8,12 +8,12 @@ import os
 import tempfile
 import time
 
-from error_monitor_sdk import init_monitor
+from demo_init import init_monitor
 from error_monitor_sdk.logs import send_log_file
 
 ENDPOINT = os.environ.get("MONITOR_URL", "http://127.0.0.1:8000")
-PROJECT_ID = os.environ.get("MONITOR_PROJECT_ID", "00000000-0000-4000-8000-000000000001")
-API_KEY = os.environ.get("MONITOR_API_KEY") or None
+PROJECT_ID = os.environ.get("MONITOR_PROJECT_ID", "3834e217-7416-46c3-a1e0-c47ce9b8642f")
+API_KEY = os.environ.get("MONITOR_API_KEY", "FjEbQ-Tfj9LLBRGDyaJRwO3tI4YV0fOToOxOyiKCoG4")
 
 
 def main() -> None:
