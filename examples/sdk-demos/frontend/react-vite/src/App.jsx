@@ -3,7 +3,13 @@ import { useState } from 'react';
 import * as MonitorSdk from 'error-monitor-sdk';
 import * as ReactMonitor from 'error-monitor-sdk/integrations/react';
 
-const { MonitorErrorBoundary } = ReactMonitor;
+function MonitorBoundary({ children, fallback }) {
+  const B = ReactMonitor.MonitorErrorBoundary;
+  if (typeof B !== 'function') {
+    return <>{children}</>;
+  }
+  return <B fallback={fallback}>{children}</B>;
+}
 
 function Bomb() {
   const [blow, setBlow] = useState(false);
@@ -27,13 +33,13 @@ export default function App() {
       </p>
       <ul style={{ lineHeight: 1.8 }}>
         <li>
-          <MonitorErrorBoundary
+          <MonitorBoundary
             fallback={(err) => (
               <span style={{ color: '#b91c1c' }}>Поймано в UI: {err.message} (событие ушло в коллектор)</span>
             )}
           >
             <Bomb />
-          </MonitorErrorBoundary>
+          </MonitorBoundary>
         </li>
         <li>
           <button

@@ -23,7 +23,17 @@ class DjangoMonitoringMiddleware(MiddlewareMixin):
         self.user_id_func = None
         self.capture_requests = True
         self.capture_errors = True
-        self.exclude_paths = ["/admin/jsi18n/", "/favicon.ico", "/health/"]
+        # /track и /logs/upload: если MONITOR_URL случайно указывает на этот же Django,
+        # исходящий POST от SDK снова проходит middleware → send_event → рекурсия и 404.
+        self.exclude_paths = [
+            "/admin/jsi18n/",
+            "/favicon.ico",
+            "/health/",
+            "/track",
+            "/track/",
+            "/logs/upload",
+            "/logs/upload/",
+        ]
         
     def configure(self, user_id_func=None, capture_requests=True, capture_errors=True, exclude_paths=None):
         """Настройка middleware"""

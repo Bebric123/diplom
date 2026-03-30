@@ -11,3 +11,4 @@ flask>=3.0
 starlette>=0.27
 quart>=0.19
 litestar[standard]>=2.0
+django>=4.2

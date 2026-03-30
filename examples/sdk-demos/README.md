@@ -52,6 +52,26 @@ python 02_fastapi_demo.py   # слушает :8010
 
 Для отдельных фреймворков можно ставить только нужные пакеты (см. комментарии в `requirements.txt`).
 
+### Django MVP (`examples/sdk-demos/python/django_mvp`)
+
+Минимальный проект: `init_monitor` в `MonitoringConfig.ready()`, в `MIDDLEWARE` указан **класс** `error_monitor_sdk.integrations.django.DjangoMonitoringMiddleware` (не экземпляр из `enable_django_integration()`).
+
+**Важно:** `MONITOR_URL` — это URL **коллектора** (часто `http://127.0.0.1:8000`), а не адрес `runserver` этого демо (`:8030`). Если указать порт Django, SDK будет слать `POST /track` на само приложение → 404; в SDK пути `/track` и `/logs/upload` исключены из middleware, чтобы не было рекурсивного шторма запросов.
+
+```powershell
+cd examples/sdk-demos/python
+pip install -r requirements.txt   # или: pip install django -e ../../../project/sdk-python
+cd django_mvp
+$env:MONITOR_URL="http://127.0.0.1:8000"
+$env:MONITOR_PROJECT_ID="ваш-uuid"
+$env:MONITOR_API_KEY="ваш-ключ"   # если на коллекторе включён API key
+python manage.py migrate
+python manage.py runserver 8030
+```
+
+- `http://127.0.0.1:8030/health/` — ответ `{"ok": true}` (путь в исключениях middleware, без лишних событий).
+- `http://127.0.0.1:8030/boom/` — исключение уходит в коллектор через middleware.
+
 ## Node.js (`examples/sdk-demos/nodejs`)
 
 ```bash

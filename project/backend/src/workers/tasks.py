@@ -20,6 +20,8 @@ from src.core.models import (
 )
 from src.services.classifier import analyze_error_with_gigachat
 from src.services.notifier import (
+    advisory_lock_notify_group,
+    advisory_unlock_notify_group,
     create_error_task,
     get_project_telegram_chat_id,
     send_telegram_message_sync,
@@ -241,53 +243,62 @@ def process_event(self, event_id: str):
         try:
             status_code = event.metadata_.get("status_code") if event.metadata_ else None
 
-            if should_send_notification(db, error_group.id, severity_str, status_code):
-                tg_chat = get_project_telegram_chat_id(db, event.project_id)
-                if not tg_chat:
-                    logger.warning(
-                        "Project %s: нет telegram_chat_id — алерт не отправлен",
-                        event.project_id,
-                    )
+            advisory_lock_notify_group(db, error_group.id)
+            try:
+                if not should_send_notification(db, error_group.id, severity_str, status_code):
+                    logger.info("Notification throttled for group %s", error_group.id)
                 else:
-                    error_task = create_error_task(
-                        db=db,
-                        event_id=event.id,
-                        error_group_id=error_group.id,
-                        project_id=event.project_id,
-                    )
-                    db.commit()
-
-                    message_id = send_telegram_message_sync(
-                        event={
-                            "title": title,
-                            "severity": severity_str,
-                            "criticality": criticality_str,
-                            "recommendation": recommendation,
-                            "page_url": page_url,
-                            "group_id": str(error_group.id),
-                            "user_id": getattr(event, "user_id", "anonymous"),
-                            "action": event.action,
-                            "context": context_data,
-                            "meta": event.metadata_ or {},
-                        },
-                        error_group_id=error_group.id,
-                        task_id=error_task.id,
-                        telegram_chat_id=tg_chat,
-                    )
-
-                    if message_id:
-                        update_task_notification(
+                    tg_chat = get_project_telegram_chat_id(db, event.project_id)
+                    if not tg_chat:
+                        logger.warning(
+                            "Project %s: нет telegram_chat_id — алерт не отправлен",
+                            event.project_id,
+                        )
+                    else:
+                        error_task = create_error_task(
                             db=db,
-                            task_id=error_task.id,
-                            telegram_message_id=message_id,
-                            telegram_chat_id=tg_chat,
-                            severity=severity_str,
+                            event_id=event.id,
+                            error_group_id=error_group.id,
+                            project_id=event.project_id,
                         )
                         db.commit()
 
-                    logger.info("Notification sent for group %s", error_group.id)
-            else:
-                logger.info("Notification throttled for group %s", error_group.id)
+                        message_id = send_telegram_message_sync(
+                            event={
+                                "title": title,
+                                "severity": severity_str,
+                                "criticality": criticality_str,
+                                "recommendation": recommendation,
+                                "page_url": page_url,
+                                "group_id": str(error_group.id),
+                                "user_id": getattr(event, "user_id", "anonymous"),
+                                "action": event.action,
+                                "context": context_data,
+                                "meta": event.metadata_ or {},
+                            },
+                            error_group_id=error_group.id,
+                            task_id=error_task.id,
+                            telegram_chat_id=tg_chat,
+                        )
+
+                        if message_id:
+                            update_task_notification(
+                                db=db,
+                                task_id=error_task.id,
+                                telegram_message_id=message_id,
+                                telegram_chat_id=tg_chat,
+                                severity=severity_str,
+                            )
+                            db.commit()
+                            logger.info("Notification sent for group %s", error_group.id)
+                        else:
+                            logger.warning(
+                                "Telegram не вернул message_id для группы %s (задача %s создана)",
+                                error_group.id,
+                                error_task.id,
+                            )
+            finally:
+                advisory_unlock_notify_group(db, error_group.id)
 
         except Exception as e:
             logger.error("Failed to process notification: %s", e)
@@ -381,51 +392,61 @@ def process_log_file(self, log_id: str):
             error_preview = "\n".join(errors[:3]) if errors else "No errors"
             severity_log = "средняя"
 
-            if should_send_notification(db, error_group.id, severity_log, None):
-                tg_chat = get_project_telegram_chat_id(db, log_file.project_id)
-                if not tg_chat:
-                    logger.warning(
-                        "Project %s: нет telegram_chat_id — алерт по логу не отправлен",
-                        log_file.project_id,
-                    )
+            advisory_lock_notify_group(db, error_group.id)
+            try:
+                if not should_send_notification(db, error_group.id, severity_log, None):
+                    logger.info("Log telegram throttled for group %s", error_group.id)
                 else:
-                    message_id = send_telegram_message_sync(
-                        event={
-                            "title": f"Ошибки в логе: {log_file.filename}",
-                            "severity": severity_log,
-                            "criticality": "требует внимания",
-                            "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
-                            "page_url": f"/logs/{log_id}",
-                            "user_id": "system",
-                            "action": "log_analysis",
-                            "context": {
-                                "platform": "backend",
-                                "language": "unknown",
-                                "os_family": log_file.server_name or "unknown",
-                                "browser_family": "server",
+                    tg_chat = get_project_telegram_chat_id(db, log_file.project_id)
+                    if not tg_chat:
+                        logger.warning(
+                            "Project %s: нет telegram_chat_id — алерт по логу не отправлен",
+                            log_file.project_id,
+                        )
+                    else:
+                        message_id = send_telegram_message_sync(
+                            event={
+                                "title": f"Ошибки в логе: {log_file.filename}",
+                                "severity": severity_log,
+                                "criticality": "требует внимания",
+                                "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
+                                "page_url": f"/logs/{log_id}",
+                                "user_id": "system",
+                                "action": "log_analysis",
+                                "context": {
+                                    "platform": "backend",
+                                    "language": "unknown",
+                                    "os_family": log_file.server_name or "unknown",
+                                    "browser_family": "server",
+                                },
+                                "meta": {
+                                    "filename": log_file.filename,
+                                    "errors_count": len(errors),
+                                    "warnings_count": len(warnings),
+                                    "lines_sent": log_file.lines_sent,
+                                    "total_lines": log_file.total_lines,
+                                    "environment": log_file.environment,
+                                    "server": log_file.server_name,
+                                    "service": log_file.service_name,
+                                    "first_errors": error_preview,
+                                    "log_id": str(log_file.id),
+                                },
                             },
-                            "meta": {
-                                "filename": log_file.filename,
-                                "errors_count": len(errors),
-                                "warnings_count": len(warnings),
-                                "lines_sent": log_file.lines_sent,
-                                "total_lines": log_file.total_lines,
-                                "environment": log_file.environment,
-                                "server": log_file.server_name,
-                                "service": log_file.service_name,
-                                "first_errors": error_preview,
-                                "log_id": str(log_file.id),
-                            },
-                        },
-                        error_group_id=error_group.id,
-                        telegram_chat_id=tg_chat,
-                    )
-                    if message_id:
-                        update_error_group_alert_anchor(db, error_group.id, severity_log)
-                        db.commit()
-                    logger.info("Telegram notification sent for log %s", log_id)
-            else:
-                logger.info("Log telegram throttled for group %s", error_group.id)
+                            error_group_id=error_group.id,
+                            telegram_chat_id=tg_chat,
+                        )
+                        if message_id:
+                            update_error_group_alert_anchor(db, error_group.id, severity_log)
+                            db.commit()
+                            logger.info("Telegram notification sent for log %s", log_id)
+                        else:
+                            logger.warning(
+                                "Telegram не вернул message_id для лога %s (группа %s)",
+                                log_id,
+                                error_group.id,
+                            )
+            finally:
+                advisory_unlock_notify_group(db, error_group.id)
         else:
             logger.info("No errors found in log %s", log_id)
 

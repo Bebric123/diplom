@@ -3,7 +3,6 @@
 """
 from __future__ import annotations
 
-import re
 import secrets
 from pathlib import Path
 from typing import List
@@ -11,64 +10,23 @@ from typing import List
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from src.api.auth import hash_api_key
 from src.core.database import get_db
 from src.core.models import ApiKey, Project
+from src.web.register_schema import (
+    STACK_CHOICES,
+    RegisterApiBody,
+    _ALLOWED,
+    _CHAT_ID_RE,
+    normalize_telegram_chat_id,
+)
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 router = APIRouter(tags=["onboarding"])
-
-# Значения value в форме → сохраняются в project.tech_stack
-STACK_CHOICES = [
-    {"value": "python_fastapi", "label": "Python / FastAPI"},
-    {"value": "python_flask", "label": "Python / Flask"},
-    {"value": "python_django", "label": "Python / Django"},
-    {"value": "python_other", "label": "Python (другое)"},
-    {"value": "nodejs_express", "label": "Node.js / Express"},
-    {"value": "nodejs_fastify", "label": "Node.js / Fastify"},
-    {"value": "nodejs_nest", "label": "Node.js / Nest"},
-    {"value": "react", "label": "React"},
-    {"value": "vue", "label": "Vue"},
-    {"value": "angular", "label": "Angular"},
-    {"value": "php", "label": "PHP"},
-    {"value": "other", "label": "Другое"},
-]
-
-_ALLOWED = {c["value"] for c in STACK_CHOICES}
-_CHAT_ID_RE = re.compile(r"^-?\d{6,}$")
-
-
-def _normalize_telegram_chat_id(raw: str) -> str:
-    """Убираем пробелы (как в UI Telegram «5 162 182 296»)."""
-    return (raw or "").strip().replace(" ", "")
-
-
-class RegisterApiBody(BaseModel):
-    project_name: str = Field(default="Новый проект", max_length=200)
-    telegram_chat_id: str = Field(..., min_length=1, max_length=32)
-    stack: List[str] = Field(default_factory=list)
-
-    @field_validator("telegram_chat_id")
-    @classmethod
-    def chat_ok(cls, v: str) -> str:
-        s = _normalize_telegram_chat_id(v)
-        if not _CHAT_ID_RE.match(s):
-            raise ValueError("Некорректный Telegram chat id (только цифры, для групп с минусом в начале)")
-        return s
-
-    @field_validator("stack", mode="before")
-    @classmethod
-    def stack_filter(cls, v):
-        if v is None:
-            return []
-        if isinstance(v, str):
-            return [v] if v in _ALLOWED else []
-        return [x for x in v if x in _ALLOWED][:24]
 
 
 def _create_project_with_key(
@@ -123,7 +81,7 @@ def register_submit(
     telegram_chat_id: str = Form(...),
     stack: List[str] = Form(default=[]),
 ):
-    tid = _normalize_telegram_chat_id(telegram_chat_id)
+    tid = normalize_telegram_chat_id(telegram_chat_id)
     if not _CHAT_ID_RE.match(tid):
         return templates.TemplateResponse(
             "register.html",

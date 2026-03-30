@@ -1,11 +1,6 @@
-# Файл: backend/requirements/dev.txt
-black==23.11.0
-flake8==6.1.0
-mypy==1.7.0
-pytest==7.4.3
-pytest-asyncio==0.21.1
-pytest-cov==4.1.0
-httpx==0.25.1  # для тестирования API
-factory-boy==3.3.0  # тестовые данные
-freezegun==1.2.2  # мок времени
-requests
+# Тесты и нагрузка (pip install -r requirements/dev.txt)
+-r base.txt
+pytest>=7.4
+pytest-asyncio>=0.21
+httpx>=0.25
+locust>=2.17

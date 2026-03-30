@@ -1,16 +1,15 @@
-import json
 import logging
 import uuid
-from typing import Annotated, Any, Dict, Optional
+from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from src.api.auth import reports_token_guard, require_project_api_key
+from src.api.schemas_ingest import EventCreate, LogFileCreate, LogFileResponse
 from src.services.stats_service import aggregate_metrics, build_excel_report, resolve_time_range
 from src.web.onboarding import router as onboarding_router
 from src.core.config import get_settings
@@ -28,9 +27,6 @@ from src.core.models import (
 logger = logging.getLogger("collector")
 settings = get_settings()
 logger.info("REDIS_URL from settings: %s", settings.redis_url)
-
-_MAX_CONTEXT_META_JSON = 65536
-_MAX_LOG_CONTENT_CHARS = 2 * 1024 * 1024
 
 app = FastAPI(title="Error Monitor Collector")
 
@@ -101,24 +97,6 @@ def get_platform_id(db: Session, platform_name: str) -> uuid.UUID:
         db.add(platform)
         db.flush()
     return platform.id
-
-
-class EventCreate(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    project_id: str = Field(..., max_length=64)
-    action: str = Field(..., max_length=512)
-    timestamp: str = Field(..., max_length=80)
-    context: Dict[str, Any] = Field(default_factory=dict)
-    meta: Dict[str, Any] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _limit_payload_size(self):
-        for name in ("context", "meta"):
-            raw = json.dumps(getattr(self, name), ensure_ascii=False)
-            if len(raw) > _MAX_CONTEXT_META_JSON:
-                raise ValueError(f"{name} payload too large")
-        return self
 
 
 @app.post("/track")
@@ -192,30 +170,6 @@ async def track_event(
         db.rollback()
         logger.exception("Ошибка при обработке события")
         raise HTTPException(status_code=500, detail="Internal server error") from None
-
-
-class LogFileCreate(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    project_id: str = Field(..., max_length=64)
-    filename: str = Field(..., max_length=512)
-    content: str = Field(..., max_length=_MAX_LOG_CONTENT_CHARS)
-    lines_sent: int = Field(..., ge=0, le=10_000_000)
-    total_lines: Optional[int] = Field(default=None, ge=0, le=10_000_000)
-    server_name: Optional[str] = Field(default=None, max_length=256)
-    service_name: Optional[str] = Field(default=None, max_length=256)
-    environment: Optional[str] = Field(default="production", max_length=64)
-    error_group_id: Optional[str] = Field(default=None, max_length=64)
-
-
-class LogFileResponse(BaseModel):
-    id: str
-    filename: str
-    lines_sent: int
-    total_lines: Optional[int]
-    created_at: str
-    server_name: Optional[str]
-    service_name: Optional[str]
 
 
 @app.post("/logs/upload")

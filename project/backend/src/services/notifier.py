@@ -1,7 +1,9 @@
 import asyncio
 import json
 import logging
+import os
 import re
+import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
@@ -10,6 +12,7 @@ from typing import Optional
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from sqlalchemy import text
 from sqlalchemy.orm import Session, joinedload
 
 from src.core.config import get_settings
@@ -217,6 +220,29 @@ def should_send_notification(
     return True
 
 
+def _pg_advisory_keys(error_group_id: uuid.UUID) -> tuple[int, int]:
+    """Два int для pg_advisory_lock (стабильно по UUID группы)."""
+    b = error_group_id.bytes
+    k1 = int.from_bytes(b[:4], "big") & 0x7FFFFFFF
+    k2 = int.from_bytes(b[4:8], "big") & 0x7FFFFFFF
+    return k1, k2
+
+
+def advisory_lock_notify_group(db: Session, error_group_id: uuid.UUID) -> None:
+    """
+    Сериализация алертов по одной группе между воркерами Celery.
+    Без этого несколько воркеров могут одновременно пройти should_send_notification
+    до обновления alert_last_sent_at и отправить пачку дублей в Telegram.
+    """
+    k1, k2 = _pg_advisory_keys(error_group_id)
+    db.execute(text("SELECT pg_advisory_lock(CAST(:k1 AS int), CAST(:k2 AS int))"), {"k1": k1, "k2": k2})
+
+
+def advisory_unlock_notify_group(db: Session, error_group_id: uuid.UUID) -> None:
+    k1, k2 = _pg_advisory_keys(error_group_id)
+    db.execute(text("SELECT pg_advisory_unlock(CAST(:k1 AS int), CAST(:k2 AS int))"), {"k1": k1, "k2": k2})
+
+
 def update_error_group_alert_anchor(
     db: Session, error_group_id: uuid.UUID, severity: str
 ) -> None:
@@ -380,7 +406,8 @@ async def send_telegram_message_async(
     chat_id = _telegram_chat_id_for_api(telegram_chat_id)
     bot = Bot(token=_bot_token())
     ts = str(int(time.time()))
-    
+    file_path: Optional[str] = None
+
     try:
         # Безопасное имя файла
         safe_user = re.sub(r"[^a-zA-Z0-9_-]", "_", str(event.get("meta", {}).get("user_id", "anonymous"))[:20])
@@ -397,15 +424,23 @@ async def send_telegram_message_async(
         status_text = get_task_status_text(task)
 
         message = build_message(event, task, analysis)
-        
-        # Сохраняем полную информацию в файл
+
         full_info = json.dumps(event, indent=2, ensure_ascii=False)
-        file_path = f"/tmp/error_{safe_user}_{ts}.txt"
-        
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(full_info)
-        
-        # Создаём клавиатуру
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            delete=False,
+            prefix=f"errmon_{safe_user}_{ts}_",
+            suffix=".txt",
+        )
+        try:
+            tmp.write(full_info)
+            tmp.close()
+            file_path = tmp.name
+        except Exception:
+            tmp.close()
+            raise
+
         if task_id:
             if status_text == "Решена":
                 keyboard = create_resolved_keyboard()
@@ -413,29 +448,41 @@ async def send_telegram_message_async(
                 keyboard = create_task_keyboard(str(task_id))
         else:
             keyboard = None
-        
-        # Отправляем сообщение
+
         sent_message = await bot.send_message(
             chat_id=chat_id,
             text=message,
             parse_mode="HTML",
-            reply_markup=keyboard
+            reply_markup=keyboard,
         )
-        
-        # Отправляем файл с полной информацией
-        document = FSInputFile(file_path)
-        await bot.send_document(
-            chat_id=chat_id,
-            document=document,
-            caption="📄 Полная информация об ошибке"
-        )
-        
+
+        # Документ отдельно: при FloodWait/429 текст уже ушёл — не теряем message_id и якорь троттлинга
+        if file_path and os.path.isfile(file_path):
+            try:
+                document = FSInputFile(file_path)
+                await bot.send_document(
+                    chat_id=chat_id,
+                    document=document,
+                    caption="📄 Полная информация об ошибке",
+                )
+            except Exception as doc_err:
+                logger.warning(
+                    "Telegram send_document failed (краткое сообщение уже доставлено): %s",
+                    doc_err,
+                    exc_info=True,
+                )
+
         return sent_message.message_id
-        
+
     except Exception as e:
         logger.error(f"❌ Failed to send Telegram message: {e}", exc_info=True)
         raise
     finally:
+        if file_path and os.path.isfile(file_path):
+            try:
+                os.unlink(file_path)
+            except OSError:
+                pass
         await bot.session.close()
 
 async def update_telegram_message(task_id: uuid.UUID):
@@ -546,6 +593,8 @@ def update_telegram_message_sync(task_id: uuid.UUID):
                 loop.close()
 
 __all__ = [
+    "advisory_lock_notify_group",
+    "advisory_unlock_notify_group",
     "send_telegram_message_async",
     "send_telegram_message_sync",
     "update_telegram_message",

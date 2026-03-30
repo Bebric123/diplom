@@ -1,3 +1,6 @@
 # Локальные секреты (шаблон — .env.example)
 .env
 .env.local
+
+# Django MVP (локальная SQLite)
+python/django_mvp/db.sqlite3
