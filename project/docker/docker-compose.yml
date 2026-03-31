@@ -1,4 +1,4 @@
-version: '3.8'  # ← рекомендуется использовать 3.8+
+version: '3.8'
 
 services:
   db:
@@ -76,5 +76,28 @@ services:
     command: sh -c "alembic upgrade head && python -m src.services.telegram_bot"
     restart: on-failure
 
+  # Периодический pg_dump: docker compose --profile backup up -d db-backup
+  # BACKUP_INTERVAL_SEC в .env (по умолчанию 86400). Архивы в volume pg_backups (>14 дней удаляются).
+  db-backup:
+    profiles: ["backup"]
+    image: postgres:15
+    depends_on:
+      db:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      BACKUP_INTERVAL_SEC: ${BACKUP_INTERVAL_SEC:-86400}
+    volumes:
+      - pg_backups:/backups
+      - ./scripts/pg_backup_loop.sh:/pg_backup_loop.sh:ro
+    entrypoint: ["/bin/bash", "/pg_backup_loop.sh"]
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  pg_backups:

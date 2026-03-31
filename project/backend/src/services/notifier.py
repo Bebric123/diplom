@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from html import escape as html_escape
 import tempfile
 import time
 import uuid
@@ -74,23 +75,28 @@ def get_platform_emoji(platform: str) -> str:
     return emoji_map.get(platform.lower(), "❓")
 
 def get_severity_emoji(severity: str) -> str:
-    """Возвращает эмодзи для уровня срочности"""
+    s = (severity or "").lower().strip()
     emoji_map = {
+        "незначительно": "⚪",
         "низкая": "🟢",
         "средняя": "🟡",
         "высокая": "🟠",
-        "критическая": "🔴"
+        "критическая": "🔴",
     }
-    return emoji_map.get(severity.lower(), "⚪")
+    return emoji_map.get(s, "⚪")
 
 def get_criticality_emoji(criticality: str) -> str:
-    """Возвращает эмодзи для критичности"""
+    c = (criticality or "").lower().strip()
     emoji_map = {
+        "можно не исправлять": "✅",
+        "не критично": "✅",
         "не требует внимания": "✅",
         "требует внимания": "⚠️",
-        "критично": "🔥"
+        "блокирует функционал": "🔥",
+        "критично": "🔥",
+        "авария": "🔴",
     }
-    return emoji_map.get(criticality.lower(), "❓")
+    return emoji_map.get(c, "❓")
 
 def format_context(context_data: dict) -> str:
     """Форматирует контекст для отображения"""
@@ -115,6 +121,9 @@ def format_metadata(metadata: dict) -> str:
     parts = []
     
     important_fields = [
+        ("filename", "📁 Файл"),
+        ("errors_count", "❌ Строк error/exception"),
+        ("warnings_count", "⚠️ Строк warning"),
         ("method", "📡 Метод"),
         ("endpoint", "🔗 Эндпоинт"),
         ("status_code", "📊 Статус"),
@@ -137,8 +146,62 @@ def format_metadata(metadata: dict) -> str:
     if "traceback" in metadata and metadata["traceback"]:
         trace = metadata["traceback"][:200] + "..." if len(metadata["traceback"]) > 200 else metadata["traceback"]
         parts.append(f"\n📚 Stacktrace:\n<code>{trace}</code>")
-    
+
     return "\n".join(parts) if parts else "—"
+
+
+def build_log_alert_event_dict(log_file, errors: list, warnings: list, log_id_str: str) -> dict:
+    error_preview = "\n".join(errors[:40]) if errors else ""
+    return {
+        "title": f"Ошибки в логе: {log_file.filename}",
+        "severity": "средняя",
+        "criticality": "требует внимания",
+        "recommendation": f"Найдено {len(errors)} строк с error/exception и {len(warnings)} с warning",
+        "page_url": f"/logs/{log_id_str}",
+        "user_id": "system",
+        "action": "log_analysis",
+        "context": {
+            "platform": "backend",
+            "language": "unknown",
+            "os_family": log_file.server_name or "unknown",
+            "browser_family": "server",
+        },
+        "meta": {
+            "filename": log_file.filename,
+            "errors_count": len(errors),
+            "warnings_count": len(warnings),
+            "lines_sent": log_file.lines_sent,
+            "total_lines": log_file.total_lines,
+            "environment": log_file.environment,
+            "server": log_file.server_name,
+            "service": log_file.service_name,
+            "first_errors": error_preview,
+            "log_id": str(log_file.id),
+        },
+    }
+
+
+def task_inline_keyboard(task: Optional[ErrorTask], task_id_str: str) -> Optional[InlineKeyboardMarkup]:
+    if task is None:
+        return None
+    if task.is_resolved:
+        return create_resolved_keyboard()
+    if task.is_acknowledged:
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="✅ Отметить решённой",
+                        callback_data=f"resolve_{task_id_str}",
+                    )
+                ]
+            ]
+        )
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="▶️ Взять в работу", callback_data=f"ack_{task_id_str}")]
+        ]
+    )
 
 
 def _event_to_analyzer_payload(event: Event) -> dict:
@@ -308,24 +371,6 @@ def get_task_status_text(task: ErrorTask) -> str:
     else:
         return "Ожидает"
 
-def create_task_keyboard(task_id: str) -> InlineKeyboardMarkup:
-    """Создаёт клавиатуру с кнопками для задачи"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="▶️ Начать работу", 
-                callback_data=f"ack_{task_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="✅ Отметить решённой", 
-                callback_data=f"resolve_{task_id}"
-            )
-        ]
-    ])
-    return keyboard
-
 def create_resolved_keyboard() -> InlineKeyboardMarkup:
     """Создаёт клавиатуру для решённой задачи"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -355,6 +400,10 @@ def build_message(event: dict, task: ErrorTask, analysis: dict) -> str:
 
     context_text = format_context(context)
     meta_text = format_metadata(meta)
+    log_snip = ""
+    if action == "log_analysis" and meta.get("first_errors"):
+        sn = html_escape(str(meta["first_errors"])[:3500])
+        log_snip = f"\n<b>📄 Фрагмент лога:</b>\n<pre>{sn}</pre>\n"
 
     status_emoji = get_task_status_emoji(task)
     status_text = get_task_status_text(task)
@@ -377,7 +426,7 @@ def build_message(event: dict, task: ErrorTask, analysis: dict) -> str:
         "",
         f"<b>📋 Детали:</b>",
         meta_text,
-        "",
+        log_snip,
         f"<b>🔍 Анализ:</b>",
         f"{severity_emoji} <b>Срочность:</b> {severity.upper()}",
         f"{criticality_emoji} <b>Критичность:</b> {criticality.upper()}",
@@ -421,8 +470,6 @@ async def send_telegram_message_async(
         finally:
             db.close()
 
-        status_text = get_task_status_text(task)
-
         message = build_message(event, task, analysis)
 
         full_info = json.dumps(event, indent=2, ensure_ascii=False)
@@ -442,10 +489,7 @@ async def send_telegram_message_async(
             raise
 
         if task_id:
-            if status_text == "Решена":
-                keyboard = create_resolved_keyboard()
-            else:
-                keyboard = create_task_keyboard(str(task_id))
+            keyboard = task_inline_keyboard(task, str(task_id))
         else:
             keyboard = None
 
@@ -512,10 +556,7 @@ async def update_telegram_message(task_id: uuid.UUID):
             analysis = analyze_error_with_gigachat(event_dict)
             updated_message = build_message(event_dict, task, analysis)
 
-            if task.is_resolved:
-                keyboard = create_resolved_keyboard()
-            else:
-                keyboard = create_task_keyboard(str(task_id))
+            keyboard = task_inline_keyboard(task, str(task_id))
 
             try:
                 await bot.edit_message_text(
@@ -593,6 +634,7 @@ def update_telegram_message_sync(task_id: uuid.UUID):
                 loop.close()
 
 __all__ = [
+    "build_log_alert_event_dict",
     "advisory_lock_notify_group",
     "advisory_unlock_notify_group",
     "send_telegram_message_async",

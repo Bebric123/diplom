@@ -15,17 +15,32 @@ def analyze_error_with_gigachat(event: dict) -> dict:
     page_url = event.get("page_url", "N/A")
     action = event.get("action", "unknown")
 
-    user_agent = metadata.get("user_agent", "")
-    if not context.get("browser_family") and user_agent:
-        browser = "Chrome" if "Chrome" in user_agent else "Firefox" if "Firefox" in user_agent else "Other"
-        os_family = "Windows" if "Windows" in user_agent else "Mac" if "Mac" in user_agent else "Linux"
-        context.setdefault("browser_family", browser)
-        context.setdefault("os_family", os_family)
+    if action == "log_analysis" or metadata.get("first_errors") is not None:
+        fn = metadata.get("filename", "")
+        ec = metadata.get("errors_count", 0)
+        wc = metadata.get("warnings_count", 0)
+        body = str(metadata.get("first_errors") or "")[:8000]
+        error_summary = f"""
+Тип: загруженный лог-файл (не веб-страница).
+Файл: {fn}
+URL/идентификатор в системе: {page_url}
+Строк с маркерами error/exception/critical: {ec}
+Строк с warning: {wc}
+Текст из лога (как при анализе):
+{body}
+""".strip()
+    else:
+        user_agent = metadata.get("user_agent", "")
+        if not context.get("browser_family") and user_agent:
+            browser = "Chrome" if "Chrome" in user_agent else "Firefox" if "Firefox" in user_agent else "Other"
+            os_family = "Windows" if "Windows" in user_agent else "Mac" if "Mac" in user_agent else "Linux"
+            context.setdefault("browser_family", browser)
+            context.setdefault("os_family", os_family)
 
-    error_message = metadata.get("error_message", "No error message")
-    stack_trace = (metadata.get("stack_trace") or metadata.get("error_stack") or "")[:500]
+        error_message = metadata.get("error_message", "No error message")
+        stack_trace = (metadata.get("stack_trace") or metadata.get("error_stack") or "")[:500]
 
-    error_summary = f"""
+        error_summary = f"""
 URL: {page_url}
 Действие: {action}
 Платформа: {context.get('platform', 'unknown')}

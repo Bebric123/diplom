@@ -22,11 +22,11 @@ from src.services.classifier import analyze_error_with_gigachat
 from src.services.notifier import (
     advisory_lock_notify_group,
     advisory_unlock_notify_group,
+    build_log_alert_event_dict,
     create_error_task,
     get_project_telegram_chat_id,
     send_telegram_message_sync,
     should_send_notification,
-    update_error_group_alert_anchor,
     update_task_notification,
 )
 
@@ -389,7 +389,6 @@ def process_log_file(self, log_id: str):
             log_file.error_group_id = error_group.id
             db.commit()
 
-            error_preview = "\n".join(errors[:3]) if errors else "No errors"
             severity_log = "средняя"
 
             advisory_lock_notify_group(db, error_group.id)
@@ -404,39 +403,35 @@ def process_log_file(self, log_id: str):
                             log_file.project_id,
                         )
                     else:
-                        message_id = send_telegram_message_sync(
-                            event={
-                                "title": f"Ошибки в логе: {log_file.filename}",
-                                "severity": severity_log,
-                                "criticality": "требует внимания",
-                                "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
-                                "page_url": f"/logs/{log_id}",
-                                "user_id": "system",
-                                "action": "log_analysis",
-                                "context": {
-                                    "platform": "backend",
-                                    "language": "unknown",
-                                    "os_family": log_file.server_name or "unknown",
-                                    "browser_family": "server",
-                                },
-                                "meta": {
-                                    "filename": log_file.filename,
-                                    "errors_count": len(errors),
-                                    "warnings_count": len(warnings),
-                                    "lines_sent": log_file.lines_sent,
-                                    "total_lines": log_file.total_lines,
-                                    "environment": log_file.environment,
-                                    "server": log_file.server_name,
-                                    "service": log_file.service_name,
-                                    "first_errors": error_preview,
-                                    "log_id": str(log_file.id),
-                                },
-                            },
+                        payload = build_log_alert_event_dict(log_file, errors, warnings, log_id)
+                        meta = dict(payload.get("meta") or {})
+                        ev = Event(
+                            project_id=log_file.project_id,
+                            action="log_analysis",
+                            metadata_=meta,
                             error_group_id=error_group.id,
+                        )
+                        db.add(ev)
+                        db.flush()
+                        err_task = create_error_task(
+                            db, ev.id, error_group.id, log_file.project_id
+                        )
+                        db.commit()
+
+                        message_id = send_telegram_message_sync(
+                            payload,
+                            error_group_id=error_group.id,
+                            task_id=err_task.id,
                             telegram_chat_id=tg_chat,
                         )
                         if message_id:
-                            update_error_group_alert_anchor(db, error_group.id, severity_log)
+                            update_task_notification(
+                                db=db,
+                                task_id=err_task.id,
+                                telegram_message_id=message_id,
+                                telegram_chat_id=tg_chat,
+                                severity=severity_log,
+                            )
                             db.commit()
                             logger.info("Telegram notification sent for log %s", log_id)
                         else:

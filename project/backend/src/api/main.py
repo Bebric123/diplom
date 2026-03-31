@@ -2,8 +2,8 @@ import logging
 import uuid
 from typing import Annotated, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from starlette.middleware.cors import CORSMiddleware
@@ -94,6 +94,20 @@ async def _security_headers(request, call_next):
             f"max-age={settings.hsts_max_age}; includeSubDomains"
         )
     return response
+
+
+@app.middleware("http")
+async def _unhandled_errors(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Необработанная ошибка %s %s", request.method, request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "internal_server_error"},
+        )
 
 
 def get_platform_id(db: Session, platform_name: str) -> uuid.UUID:
@@ -241,12 +255,16 @@ async def upload_log(
 async def process_log_sync(log_file: LogFile, db: Session):
     import hashlib
 
-    from src.core.models import ErrorGroup, Platform
+    from src.core.models import ErrorGroup, Event, Platform
     from src.services.notifier import (
+        advisory_lock_notify_group,
+        advisory_unlock_notify_group,
+        build_log_alert_event_dict,
+        create_error_task,
         get_project_telegram_chat_id,
         send_telegram_message_async,
         should_send_notification,
-        update_error_group_alert_anchor,
+        update_task_notification,
     )
 
     def _compact_text(s: str, max_len: int = 8000) -> str:
@@ -311,62 +329,66 @@ async def process_log_sync(log_file: LogFile, db: Session):
     log_file.error_group_id = error_group.id
     db.commit()
 
-    error_preview = "\n".join(errors[:3])
     severity_log = "средняя"
 
-    if should_send_notification(db, error_group.id, severity_log, None):
-        tg_chat = get_project_telegram_chat_id(db, log_file.project_id)
-        if not tg_chat:
-            logger.warning(
-                "Project %s: нет telegram_chat_id — синхронный алерт по логу пропущен",
-                log_file.project_id,
+    advisory_lock_notify_group(db, error_group.id)
+    try:
+        if not should_send_notification(db, error_group.id, severity_log, None):
+            logger.info(
+                "Log %s sync path: telegram throttled for group %s",
+                log_file.id,
+                error_group.id,
             )
         else:
-            try:
-                mid = await send_telegram_message_async(
-                    event={
-                        "title": f"Ошибки в логе: {log_file.filename}",
-                        "severity": severity_log,
-                        "criticality": "требует внимания",
-                        "recommendation": f"Найдено {len(errors)} ошибок и {len(warnings)} предупреждений",
-                        "page_url": f"/logs/{log_file.id}",
-                        "user_id": "system",
-                        "action": "log_analysis",
-                        "context": {
-                            "platform": "backend",
-                            "language": "unknown",
-                            "os_family": log_file.server_name or "unknown",
-                            "browser_family": "server",
-                        },
-                        "meta": {
-                            "filename": log_file.filename,
-                            "errors_count": len(errors),
-                            "warnings_count": len(warnings),
-                            "lines_sent": log_file.lines_sent,
-                            "total_lines": log_file.total_lines,
-                            "environment": log_file.environment,
-                            "server": log_file.server_name,
-                            "service": log_file.service_name,
-                            "first_errors": error_preview,
-                            "log_id": str(log_file.id),
-                        },
-                    },
-                    error_group_id=error_group.id,
-                    telegram_chat_id=tg_chat,
+            tg_chat = get_project_telegram_chat_id(db, log_file.project_id)
+            if not tg_chat:
+                logger.warning(
+                    "Project %s: нет telegram_chat_id — синхронный алерт по логу пропущен",
+                    log_file.project_id,
                 )
-                if mid:
-                    update_error_group_alert_anchor(db, error_group.id, severity_log)
+            else:
+                try:
+                    payload = build_log_alert_event_dict(
+                        log_file, errors, warnings, str(log_file.id)
+                    )
+                    meta = dict(payload.get("meta") or {})
+                    ev = Event(
+                        project_id=log_file.project_id,
+                        action="log_analysis",
+                        metadata_=meta,
+                        error_group_id=error_group.id,
+                    )
+                    db.add(ev)
+                    db.flush()
+                    err_task = create_error_task(
+                        db, ev.id, error_group.id, log_file.project_id
+                    )
                     db.commit()
-                    logger.info("Log %s processed synchronously, notification sent", log_file.id)
-            except Exception:
-                db.rollback()
-                raise
-    else:
-        logger.info(
-            "Log %s sync path: telegram throttled for group %s",
-            log_file.id,
-            error_group.id,
-        )
+
+                    mid = await send_telegram_message_async(
+                        payload,
+                        error_group_id=error_group.id,
+                        task_id=err_task.id,
+                        telegram_chat_id=tg_chat,
+                    )
+                    if mid:
+                        update_task_notification(
+                            db=db,
+                            task_id=err_task.id,
+                            telegram_message_id=mid,
+                            telegram_chat_id=tg_chat,
+                            severity=severity_log,
+                        )
+                        db.commit()
+                        logger.info(
+                            "Log %s processed synchronously, notification sent",
+                            log_file.id,
+                        )
+                except Exception:
+                    db.rollback()
+                    raise
+    finally:
+        advisory_unlock_notify_group(db, error_group.id)
 
 
 @app.get("/logs/{log_id}")

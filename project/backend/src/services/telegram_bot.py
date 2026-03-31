@@ -89,6 +89,12 @@ async def process_callback(callback_query: types.CallbackQuery):
             if task.is_resolved:
                 await callback_query.answer(f"Задача {formatted_id} уже решена", show_alert=False)
                 return
+            if not task.is_acknowledged:
+                await callback_query.answer(
+                    "Сначала нажмите «Взять в работу»",
+                    show_alert=True,
+                )
+                return
 
             task.is_resolved = True
             task.resolved_at = datetime.now(timezone.utc)
