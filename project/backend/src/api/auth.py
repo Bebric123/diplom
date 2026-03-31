@@ -1,4 +1,4 @@
-"""Проверка API-ключей для публичного collector API (ingest / чтение логов)."""
+"""Проверка API-ключей для ingest / чтения логов. Ключи хранятся только как SHA256(pepper+ключ)."""
 from __future__ import annotations
 
 import hashlib

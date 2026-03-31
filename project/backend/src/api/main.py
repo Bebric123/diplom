@@ -4,6 +4,7 @@ from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -46,8 +47,13 @@ def root_landing():
 
 
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+def health(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "ok", "database": True}
+    except Exception:
+        logger.exception("health check: database unreachable")
+        raise HTTPException(status_code=503, detail="database_unavailable") from None
 
 
 if settings.trusted_hosts_list():

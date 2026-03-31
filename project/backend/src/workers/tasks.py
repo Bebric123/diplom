@@ -271,7 +271,7 @@ def process_event(self, event_id: str):
                                 "recommendation": recommendation,
                                 "page_url": page_url,
                                 "group_id": str(error_group.id),
-                                "user_id": getattr(event, "user_id", "anonymous"),
+                                "user_id": str((event.metadata_ or {}).get("user_id", "anonymous")),
                                 "action": event.action,
                                 "context": context_data,
                                 "meta": event.metadata_ or {},

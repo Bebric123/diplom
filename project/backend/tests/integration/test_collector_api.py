@@ -11,7 +11,9 @@ pytestmark = pytest.mark.integration
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok"}
+    data = r.json()
+    assert data["status"] == "ok"
+    assert data.get("database") is True
 
 
 def test_track_invalid_project_id(client):

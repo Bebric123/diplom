@@ -1,4 +1,3 @@
-# backend/src/core/database.py
 import os
 from typing import Any
 
@@ -7,7 +6,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
 
-# Читаем URL из .env
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@db:5432/Monitoring")
 
 Base = declarative_base()
@@ -17,7 +15,6 @@ _session_factory = None
 
 
 def get_engine():
-    """Создаёт движок при первом обращении (удобно для pytest без живой БД на этапе импорта)."""
     global _engine
     if _engine is None:
         _engine = create_engine(
@@ -25,6 +22,7 @@ def get_engine():
             poolclass=QueuePool,
             pool_size=20,
             max_overflow=30,
+            pool_pre_ping=True,
             echo=False,
         )
     return _engine
@@ -58,7 +56,6 @@ engine = _EngineProxy()
 
 
 def get_db():
-    """Dependency для FastAPI"""
     db = SessionLocal()
     try:
         yield db
