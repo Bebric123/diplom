@@ -6,25 +6,28 @@
   <title>Инструкции по SDK — Error Monitor</title>
   <style>
     :root {
-      font-family: system-ui, sans-serif;
+      font-family: "Segoe UI", system-ui, sans-serif;
       line-height: 1.55;
-      color: #1a1a1a;
-      --sidebar-w: 15rem;
-      --accent: #2563eb;
-      --border: #e4e4e7;
-      --code-bg: #f4f4f5;
+      color: #1e293b;
+      --sidebar-w: 16rem;
+      --accent: #4f46e5;
+      --accent-soft: rgba(79, 70, 229, 0.12);
+      --border: #e2e8f0;
+      --code-bg: #f1f5f9;
+      --hero-grad: linear-gradient(135deg, #4f46e5 0%, #0ea5e9 100%);
     }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; }
+    body { margin: 0; min-height: 100vh; background: #f8fafc; }
     .topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 0.75rem;
-      padding: 0.75rem 1.25rem;
+      padding: 0.85rem 1.35rem;
       border-bottom: 1px solid var(--border);
-      background: #fafafa;
+      background: #fff;
+      box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
       position: sticky;
       top: 0;
       z-index: 20;
@@ -52,9 +55,11 @@
     .layout {
       display: grid;
       grid-template-columns: var(--sidebar-w) 1fr;
-      max-width: 72rem;
+      max-width: 76rem;
       margin: 0 auto;
       min-height: calc(100vh - 3rem);
+      box-shadow: 0 0 0 1px var(--border);
+      background: #fff;
     }
     @media (max-width: 52rem) {
       .layout { grid-template-columns: 1fr; }
@@ -73,7 +78,7 @@
       overflow-y: auto;
       padding: 1rem 0.75rem 1.5rem 1.25rem;
       border-right: 1px solid var(--border);
-      background: #fcfcfc;
+      background: #fff;
     }
     aside.nav h2 {
       font-size: 0.7rem;
@@ -97,12 +102,14 @@
       padding: 0.25rem 0.35rem;
       border-radius: 6px;
     }
-    aside.nav a:hover { background: #f4f4f5; color: var(--accent); }
+    aside.nav a:hover { background: var(--accent-soft); color: var(--accent); }
     main.doc {
-      padding: 1.25rem 1.5rem 3rem;
-      max-width: 48rem;
+      padding: 1.5rem 1.75rem 3.5rem;
+      max-width: 50rem;
+      background: #fff;
+      border-radius: 0 0 0 12px;
     }
-    main.doc h1 { font-size: 1.5rem; margin-top: 0; }
+    main.doc h1 { font-size: 1.65rem; margin-top: 0; letter-spacing: -0.02em; }
     main.doc section {
       scroll-margin-top: 4rem;
       margin-bottom: 2.25rem;
@@ -121,13 +128,15 @@
       font-size: 0.88em;
     }
     pre {
-      background: #18181b;
-      color: #e4e4e7;
-      padding: 1rem;
-      border-radius: 10px;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 1.05rem 1.15rem;
+      border-radius: 12px;
       overflow-x: auto;
       font-size: 0.82rem;
-      line-height: 1.45;
+      line-height: 1.5;
+      border: 1px solid #1e293b;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
     }
     pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
     .hint { font-size: 0.88rem; color: #52525b; }
@@ -158,6 +167,7 @@
         <ul>
           <li><a href="#intro">Введение</a></li>
           <li><a href="#keys">Ключи и URL</a></li>
+          <li><a href="#github">Клон из GitHub</a></li>
           <li><a href="#install">Установка SDK</a></li>
           <li><a href="#python">Python</a></li>
           <li><a href="#nodejs">Node.js</a></li>
@@ -173,6 +183,7 @@
         <ul>
           <li><a href="#intro">Overview</a></li>
           <li><a href="#keys">Keys &amp; URL</a></li>
+          <li><a href="#github">From GitHub</a></li>
           <li><a href="#install">Installing SDKs</a></li>
           <li><a href="#python">Python</a></li>
           <li><a href="#nodejs">Node.js</a></li>
@@ -237,23 +248,44 @@
         </div>
       </section>
 
+      <section id="github">
+        <h2 class="lang-ru">Клонирование с GitHub</h2>
+        <h2 class="lang-en">Clone from GitHub</h2>
+        <div class="lang-ru">
+          <p>Репозиторий: <a href="https://github.com/Bebric123/diplom" rel="noopener noreferrer">github.com/Bebric123/diplom</a>. SDK лежат внутри <code>project/sdk-python</code>, <code>project/sdk-js</code>, <code>project/sdk-php</code>. Демо с рабочим кодом — <code>examples/sdk-demos/</code> (Python, Node, PHP, React/Vue, <code>fetch_track_demo.html</code>).</p>
+          <pre><code>git clone https://github.com/Bebric123/diplom.git
+cd diplom</code></pre>
+          <p>Дальше ставьте SDK из этих каталогов (см. раздел <a href="#install">Установка SDK</a>) или одной строкой для Python:</p>
+          <pre><code>pip install "git+https://github.com/Bebric123/diplom.git#subdirectory=project/sdk-python"</code></pre>
+          <p>Коллектор (бэкенд) и Docker — каталог <code>project/docker</code>; подробности в README репозитория.</p>
+        </div>
+        <div class="lang-en">
+          <p>Repo: <a href="https://github.com/Bebric123/diplom" rel="noopener noreferrer">github.com/Bebric123/diplom</a>. SDKs live under <code>project/sdk-python</code>, <code>project/sdk-js</code>, <code>project/sdk-php</code>. Runnable demos: <code>examples/sdk-demos/</code>.</p>
+          <pre><code>git clone https://github.com/Bebric123/diplom.git
+cd diplom</code></pre>
+          <p>Python one-liner:</p>
+          <pre><code>pip install "git+https://github.com/Bebric123/diplom.git#subdirectory=project/sdk-python"</code></pre>
+          <p>Collector &amp; Docker: <code>project/docker</code> — see repo README.</p>
+        </div>
+      </section>
+
       <section id="install">
         <h2 class="lang-ru">Установка библиотек</h2>
         <h2 class="lang-en">Installing the SDKs</h2>
         <div class="lang-ru">
-          <p>Пакеты лежат в репозитории мониторинга (каталоги <code>sdk-python</code>, <code>sdk-js</code>, <code>sdk-php</code>). Пока публичного реестра может не быть — ставьте из локального пути или через <code>git+https://…</code>.</p>
+          <p>После <a href="#github">клона</a> пакеты ставятся из каталогов <code>project/sdk-python</code>, <code>project/sdk-js</code>, <code>project/sdk-php</code> (или через pip с <code>git+…#subdirectory=…</code> выше).</p>
           <h3>Python</h3>
           <p>Имя пакета в pip: <code>error-monitor-sdk</code>, импорт в коде: <code>error_monitor_sdk</code>.</p>
         </div>
         <div class="lang-en">
-          <p>Sources live under <code>sdk-python</code>, <code>sdk-js</code>, <code>sdk-php</code>. Install from a local path or Git URL if not published to PyPI/npm Packagist.</p>
+          <p>After <a href="#github">cloning</a>, install from <code>project/sdk-python</code>, <code>project/sdk-js</code>, <code>project/sdk-php</code> (or use the pip git URL above).</p>
           <h3>Python</h3>
           <p>PyPI name: <code>error-monitor-sdk</code>, import: <code>error_monitor_sdk</code>.</p>
         </div>
-        <pre><code># из каталога sdk-python рядом с проектом
-pip install ./sdk-python
+        <pre><code># из корня клона (каталог project/sdk-python)
+pip install ./project/sdk-python
 # или editable при разработке
-pip install -e ./sdk-python</code></pre>
+pip install -e ./project/sdk-python</code></pre>
         <div class="lang-ru">
           <h3>Node.js</h3>
           <p>Пакет <code>error-monitor-sdk</code> (каталог <code>sdk-js</code>).</p>
@@ -262,8 +294,8 @@ pip install -e ./sdk-python</code></pre>
           <h3>Node.js</h3>
           <p>Package <code>error-monitor-sdk</code> (<code>sdk-js</code>).</p>
         </div>
-        <pre><code>npm install ./sdk-js
-# или в package.json: "error-monitor-sdk": "file:../sdk-js"</code></pre>
+        <pre><code>npm install ./project/sdk-js
+# или в package.json: "error-monitor-sdk": "file:../diplom/project/sdk-js"</code></pre>
         <div class="lang-ru">
           <h3>PHP</h3>
           <p>Composer: <code>error-monitor/sdk-php</code> — через path-репозиторий на каталог <code>sdk-php</code>.</p>
@@ -273,10 +305,12 @@ pip install -e ./sdk-python</code></pre>
           <p>Composer <code>error-monitor/sdk-php</code> via a path repository to <code>sdk-php</code>.</p>
         </div>
         <pre><code>{
-  "repositories": [{ "type": "path", "url": "../sdk-php" }],
+  "repositories": [{ "type": "path", "url": "../project/sdk-php" }],
   "require": { "error-monitor/sdk-php": "@dev" }
 }</code></pre>
         <pre><code>composer update</code></pre>
+        <p class="hint lang-ru">В <code>examples/sdk-demos/php</code> в <code>composer.json</code> уже указан path <code>../../../project/sdk-php</code> — пути зависят от расположения вашего проекта.</p>
+        <p class="hint lang-en">Under <code>examples/sdk-demos/php</code>, <code>composer.json</code> uses <code>../../../project/sdk-php</code> — adjust relative paths for your layout.</p>
       </section>
 
       <section id="python">
@@ -289,23 +323,36 @@ pip install -e ./sdk-python</code></pre>
           <p>Call <code>init_monitor</code> once. Two channels: <code>/track</code> for events/exceptions; log tail → <code>/logs/upload</code> (see <a href="#logs">Logs</a>). Different APIs.</p>
         </div>
         <h3 id="python-errors"><span class="lang-ru">События и автоматический отлов ошибок (<code>/track</code>)</span><span class="lang-en">Events &amp; automatic errors (<code>/track</code>)</span></h3>
-        <pre><code>from error_monitor_sdk import init_monitor, capture_exception, track_event
+        <div class="lang-ru"><p class="hint">Ниже — тот же подход, что в <code>examples/sdk-demos/python/01_minimal_client.py</code> (переменные <code>MONITOR_*</code>).</p></div>
+        <div class="lang-en"><p class="hint">Same idea as <code>examples/sdk-demos/python/01_minimal_client.py</code> (<code>MONITOR_*</code> env vars).</p></div>
+        <pre><code>import os
+import time
+
+from error_monitor_sdk import init_monitor, capture_exception, track_event
+
+ENDPOINT = os.environ.get("MONITOR_URL", "http://127.0.0.1:8000")
+PROJECT_ID = os.environ.get("MONITOR_PROJECT_ID", "YOUR_PROJECT_UUID")
+API_KEY = os.environ.get("MONITOR_API_KEY", "YOUR_API_KEY")
 
 init_monitor(
-    endpoint="https://YOUR_COLLECTOR",
-    project_id="YOUR_PROJECT_UUID",
-    api_key="YOUR_API_KEY",
+    endpoint=ENDPOINT,
+    project_id=PROJECT_ID,
+    api_key=API_KEY,
 )
 
-track_event("payment_ok", {"amount": "99.00"})
+track_event(
+    "sdk_manual_test",
+    {"note": "как в демо"},
+    page_url="https://example.com/sdk-demo",
+)
 
 try:
     risky()
 except Exception as e:
     capture_exception(e, {"route": "/api/checkout"})
 
-# FastAPI: подключите middleware из error_monitor_sdk.integrations.fastapi
-# для автоматической отправки необработанных исключений</code></pre>
+# FastAPI: error_monitor_sdk.integrations.fastapi — middleware для 500
+time.sleep(2)  # фоновая отправка успевает уйти</code></pre>
         <h3 id="python-logs"><span class="lang-ru">Отправка логов — последние N строк файла (<code>/logs/upload</code>)</span><span class="lang-en">Log upload — last N lines (<code>/logs/upload</code>)</span></h3>
         <div class="lang-ru">
           <p>Отдельно от отлова исключений: функция <code>send_log_file</code> из <code>error_monitor_sdk.logs</code> читает файл с диска и шлёт последние <code>lines</code> строк на коллектор. Имеет смысл вызывать из обработчика ошибки (или по таймеру), например чтобы приложение само приложило хвост лога к инциденту.</p>
@@ -341,19 +388,22 @@ def on_critical_failure():
           <p>Install: see <a href="#install">Installing SDKs</a>. <strong>Events/errors</strong> vs <strong>log tail upload</strong> are separate.</p>
           <h3>Events &amp; errors</h3>
         </div>
+        <div class="lang-ru"><p class="hint">Паттерн как в демо Node (<code>examples/sdk-demos/nodejs</code>) и React/Vite: <code>import * as MonitorSdk from 'error-monitor-sdk'</code>.</p></div>
+        <div class="lang-en"><p class="hint">Same pattern as <code>examples/sdk-demos/nodejs</code> and React/Vite demos.</p></div>
         <pre><code>const sdk = require('error-monitor-sdk');
 
 sdk.initMonitor({
-  endpoint: 'https://YOUR_COLLECTOR',
-  projectId: 'YOUR_PROJECT_UUID',
-  apiKey: 'YOUR_API_KEY',
+  endpoint: process.env.MONITOR_URL || 'http://127.0.0.1:8000',
+  projectId: process.env.MONITOR_PROJECT_ID || 'YOUR_PROJECT_UUID',
+  apiKey: process.env.MONITOR_API_KEY || 'YOUR_API_KEY',
   debug: false,
 });
 
 sdk.trackEvent('server_start', { pid: process.pid });
 // await sdk.captureException(err, { route: '/api' });
 
-// Express/Fastify: см. require('error-monitor-sdk/integrations/express')</code></pre>
+// Express: require('error-monitor-sdk/integrations/express')
+// Fastify: require('error-monitor-sdk/integrations/fastify')</code></pre>
         <div class="lang-ru">
           <h3>Логи: последние N строк файла</h3>
           <p>После <code>initMonitor</code> — <code>sdk.sendLogFile('/var/log/app.log', { lines: 150, serviceName: 'worker' })</code>. Это не то же самое, что <code>captureException</code>: уходит на <code>POST /logs/upload</code>.</p>
@@ -419,7 +469,7 @@ try {
   -d '{
     "project_id": "YOUR_PROJECT_UUID",
     "action": "manual_ping",
-    "timestamp": "2025-01-01T12:00:00.000Z",
+    "timestamp": "2026-01-15T12:00:00.000Z",
     "context": {
       "platform": "backend",
       "language": "curl",
@@ -458,14 +508,18 @@ try {
   },
   body: JSON.stringify({
     project_id: 'YOUR_PROJECT_UUID',
-    action: 'page_view',
+    action: 'browser_fetch_demo',
     timestamp: new Date().toISOString(),
     context: {
       platform: 'browser',
       language: 'javascript',
       browser_family: navigator.userAgent,
     },
-    meta: { page_url: location.href, user_id: 'anon' },
+    meta: {
+      page_url: location.href,
+      user_id: 'anon',
+      error_message: 'синтетическая ошибка (как fetch_track_demo.html)',
+    },
   }),
 });</code></pre>
         <div class="lang-ru">

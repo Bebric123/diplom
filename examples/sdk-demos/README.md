@@ -1,6 +1,17 @@
 # Демо и ручная проверка SDK
 
-Коллектор (FastAPI) по умолчанию: `http://127.0.0.1:8000`. Запустите стек (`docker-compose` в `project/docker`).
+## Репозиторий
+
+```bash
+git clone https://github.com/Bebric123/diplom.git
+cd diplom
+```
+
+Демо в каталоге **`examples/sdk-demos/`**; SDK — **`project/sdk-python`**, **`project/sdk-js`**, **`project/sdk-php`**. Обзор всего проекта: [корневой README](../../README.md).
+
+---
+
+Коллектор (FastAPI) по умолчанию: `http://127.0.0.1:8000`. Запустите стек (`docker compose` в `project/docker`, см. [project/docker/README.md](../../project/docker/README.md)).
 
 **Регистрация проекта:** откройте в браузере `http://127.0.0.1:8000/register` — выберите стек, укажите **Telegram chat id** группы/чата, куда должен писать бот; получите **project_id** и **API-ключ** для SDK. Уведомления об ошибках уходят только в указанный чат.
 

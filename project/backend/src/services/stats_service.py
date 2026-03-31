@@ -186,15 +186,18 @@ def build_excel_report(
     start: datetime,
     end: datetime,
     project_id: Optional[uuid.UUID] = None,
+    project_label: Optional[str] = None,
 ) -> bytes:
     data = aggregate_metrics(db, start, end, project_id)
     wb = Workbook()
     bold = Font(bold=True)
 
+    project_cell = project_label or (data["project_id"] or "все")
+
     ws0 = wb.active
     ws0.title = "Сводка"
     ws0.append(["Период", f"{data['period']['start']} — {data['period']['end']}"])
-    ws0.append(["Проект", data["project_id"] or "все"])
+    ws0.append(["Проект", project_cell])
     ws0.append(["Событий с ошибкой (Event+EventError)", data["events_with_errors"]])
     ws0.append(["Задач создано (ErrorTask)", data["tasks_created"]])
     ws0.append(["Задач решено", data["tasks_resolved"]])

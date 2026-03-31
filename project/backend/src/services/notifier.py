@@ -298,12 +298,22 @@ def advisory_lock_notify_group(db: Session, error_group_id: uuid.UUID) -> None:
     до обновления alert_last_sent_at и отправить пачку дублей в Telegram.
     """
     k1, k2 = _pg_advisory_keys(error_group_id)
-    db.execute(text("SELECT pg_advisory_lock(CAST(:k1 AS int), CAST(:k2 AS int))"), {"k1": k1, "k2": k2})
+    # Обязательно прочитать результат: иначе psycopg2 оставляет соединение в PGRES_TUPLES_OK
+    # и последующий session.rollback() падает с DatabaseError.
+    res = db.execute(
+        text("SELECT pg_advisory_lock(CAST(:k1 AS int), CAST(:k2 AS int))"),
+        {"k1": k1, "k2": k2},
+    )
+    res.scalar()
 
 
 def advisory_unlock_notify_group(db: Session, error_group_id: uuid.UUID) -> None:
     k1, k2 = _pg_advisory_keys(error_group_id)
-    db.execute(text("SELECT pg_advisory_unlock(CAST(:k1 AS int), CAST(:k2 AS int))"), {"k1": k1, "k2": k2})
+    res = db.execute(
+        text("SELECT pg_advisory_unlock(CAST(:k1 AS int), CAST(:k2 AS int))"),
+        {"k1": k1, "k2": k2},
+    )
+    res.scalar()
 
 
 def update_error_group_alert_anchor(

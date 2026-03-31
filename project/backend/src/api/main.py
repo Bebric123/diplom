@@ -1,9 +1,11 @@
 import logging
 import uuid
+from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from starlette.middleware.cors import CORSMiddleware
@@ -29,21 +31,18 @@ logger = logging.getLogger("collector")
 settings = get_settings()
 logger.info("REDIS_URL from settings: %s", settings.redis_url)
 
+_TEMPLATES = Jinja2Templates(
+    directory=str(Path(__file__).resolve().parent.parent / "web" / "templates")
+)
+
 app = FastAPI(title="Error Monitor Collector")
 
 app.include_router(onboarding_router)
 
 
 @app.get("/", include_in_schema=False)
-def root_landing():
-    return HTMLResponse(
-        "<html><body style='font-family:system-ui;max-width:32rem;margin:2rem auto'>"
-        "<h1>Error Monitor</h1>"
-        "<p><a href=\"/register\">Регистрация проекта</a> — получить <code>project_id</code>, API-ключ и привязать Telegram.</p>"
-        "<p><a href=\"/docs/sdk\">Инструкции по SDK</a> (Python, Node, PHP, HTTP, логи) · "
-        "<a href=\"/docs\">OpenAPI (Swagger)</a> · <a href=\"/health\">health</a></p>"
-        "</body></html>"
-    )
+def root_landing(request: Request):
+    return _TEMPLATES.TemplateResponse("landing.html", {"request": request})
 
 
 @app.get("/health")
@@ -494,7 +493,11 @@ def report_weekly_xlsx(
             pid = uuid.UUID(project_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail="Invalid project_id") from e
-    blob = build_excel_report(db, start, end, pid)
+    plabel = None
+    if pid is not None:
+        prow = db.query(Project).filter(Project.id == pid).first()
+        plabel = f"{prow.name} ({prow.id})" if prow else str(pid)
+    blob = build_excel_report(db, start, end, pid, project_label=plabel)
     fname = f"report_{start.date()}_{end.date()}.xlsx"
     return Response(
         content=blob,

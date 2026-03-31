@@ -1,5 +1,7 @@
 # Фронтенд-демо (проверка SDK в браузере)
 
+Репозиторий: `git clone https://github.com/Bebric123/diplom.git` — SDK лежит в `project/sdk-js`, эти демо в `examples/sdk-demos/frontend/`.
+
 Здесь **Vite** + **React** или **Vue 3**: подключается локальный пакет `error-monitor-sdk` (`project/sdk-js`), `initMonitor`, `enableBrowserIntegration`, Error Boundary / Vue `errorHandler`.
 
 ## Зачем отдельный каталог

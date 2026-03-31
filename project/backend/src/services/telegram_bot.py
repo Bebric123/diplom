@@ -12,6 +12,7 @@ from src.core.database import SessionLocal
 from src.core.models import ErrorTask
 from src.services.notifier import update_telegram_message
 from src.services.stats_service import aggregate_metrics, build_excel_report, default_range_days
+from src.services.telegram_chat_project import is_group_like_chat, project_for_telegram_chat
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,16 @@ async def process_callback(callback_query: types.CallbackQuery):
         if not task:
             await callback_query.answer("Задача не найдена")
             return
+
+        msg = callback_query.message
+        if msg and msg.chat and is_group_like_chat(msg.chat.type):
+            grp = project_for_telegram_chat(db, msg.chat.id)
+            if grp and task.project_id != grp.id:
+                await callback_query.answer(
+                    "Эта кнопка относится к другому проекту",
+                    show_alert=True,
+                )
+                return
 
         formatted_id = format_task_id(task_id)
 
@@ -124,8 +135,9 @@ async def cmd_start(message: types.Message):
         "• Кнопки для управления задачами\n\n"
         "🆔 <b>ID задач</b> будут отображаться в формате: <code>550e8400</code>\n\n"
         "Нажми на кнопку под сообщением об ошибке, чтобы начать работу или отметить задачу как решённую.\n\n"
-        "Команды: /stats — сводка, /report — Excel за 7 дней.\n\n"
-        "Алерты об ошибках уходят в Telegram-чат, который указан при регистрации проекта на сайте коллектора (путь /register).",
+        "Команды в <b>чате проекта</b> (туда же, куда приходят алерты): /stats — сводка по этому проекту, /report — Excel за 7 дней.\n\n"
+        "В личных сообщениях боту статистика недоступна — неизвестно, какой проект считать.\n\n"
+        "Алерты уходят в Telegram-чат, указанный при регистрации на коллекторе (<code>/register</code>).",
         parse_mode="HTML"
     )
 
@@ -154,6 +166,17 @@ async def cmd_task(message: types.Message):
         if not task:
             await message.answer(f"❌ Задача с ID <code>{args[1][:8]}</code> не найдена", parse_mode="HTML")
             return
+
+        chat = message.chat
+        if chat and is_group_like_chat(chat.type):
+            proj = project_for_telegram_chat(db, chat.id)
+            if proj and task.project_id != proj.id:
+                await message.answer(
+                    "❌ Эта задача относится к <b>другому проекту</b>. "
+                    "Команда /task в группе показывает только задачи своего проекта.",
+                    parse_mode="HTML",
+                )
+                return
         
         if task.is_resolved:
             status = "✅ РЕШЕНА"
@@ -186,16 +209,34 @@ async def cmd_task(message: types.Message):
 
 @dp.message(Command("stats"))
 async def cmd_stats(message: types.Message):
-    """Сводка за 7 дней + общие счётчики задач."""
+    """Сводка за 7 дней + счётчики задач только по проекту этого чата."""
     db = SessionLocal()
     try:
-        total = db.query(ErrorTask).count()
-        resolved = db.query(ErrorTask).filter(ErrorTask.is_resolved.is_(True)).count()
-        in_progress = db.query(ErrorTask).filter(
+        chat = message.chat
+        if not chat:
+            await message.answer("Не удалось определить чат.")
+            return
+
+        proj = project_for_telegram_chat(db, chat.id)
+        if not proj:
+            await message.answer(
+                "📊 Статистика считается <b>только в чате проекта</b>, куда приходят алерты.\n\n"
+                "Убедитесь, что этот чат указан как <b>Telegram chat id</b> при регистрации проекта "
+                "на коллекторе (страница <code>/register</code>). Затем вызовите /stats снова в этой группе.\n\n"
+                "В личке бота проект не определить — откройте группу с уведомлениями.",
+                parse_mode="HTML",
+            )
+            return
+
+        pid = proj.id
+        base_task = db.query(ErrorTask).filter(ErrorTask.project_id == pid)
+        total = base_task.count()
+        resolved = base_task.filter(ErrorTask.is_resolved.is_(True)).count()
+        in_progress = base_task.filter(
             ErrorTask.is_acknowledged.is_(True),
             ErrorTask.is_resolved.is_(False),
         ).count()
-        waiting = db.query(ErrorTask).filter(
+        waiting = base_task.filter(
             ErrorTask.is_acknowledged.is_(False),
             ErrorTask.is_resolved.is_(False),
         ).count()
@@ -203,7 +244,12 @@ async def cmd_stats(message: types.Message):
         sec = func.extract("epoch", ErrorTask.resolved_at - ErrorTask.created_at)
         rmin, rmax, ravg = (
             db.query(func.min(sec), func.max(sec), func.avg(sec))
-            .filter(ErrorTask.resolved_at.isnot(None))
+            .select_from(ErrorTask)
+            .filter(
+                ErrorTask.project_id == pid,
+                ErrorTask.is_resolved.is_(True),
+                ErrorTask.resolved_at.isnot(None),
+            )
             .one()
         )
 
@@ -213,12 +259,13 @@ async def cmd_stats(message: types.Message):
             return f"{float(sec_val) / 60.0:.1f} мин"
 
         start, end = default_range_days(7)
-        m = aggregate_metrics(db, start, end, None)
+        m = aggregate_metrics(db, start, end, pid)
 
         lines = [
-            "📊 <b>Статистика</b>",
+            f"📊 <b>Статистика проекта</b> «{proj.name}»",
+            f"<code>{proj.id}</code>",
             "",
-            "<b>Все время (задачи)</b>",
+            "<b>Все время (задачи этого проекта)</b>",
             f"📌 Всего: {total} | ✅ решено: {resolved} | 🔄 в работе: {in_progress} | ⏳ ждут: {waiting}",
             f"⏱️ Время решения (все решённые): min {fmt_minutes(rmin)} | max {fmt_minutes(rmax)} | ср. {fmt_minutes(ravg)}",
             "",
@@ -248,15 +295,33 @@ async def cmd_stats(message: types.Message):
 
 @dp.message(Command("report"))
 async def cmd_report(message: types.Message):
-    """Excel-отчёт за последние 7 дней (как еженедельный)."""
+    """Excel-отчёт за последние 7 дней только по проекту этого чата."""
     db = SessionLocal()
     try:
+        chat = message.chat
+        if not chat:
+            await message.answer("Не удалось определить чат.")
+            return
+
+        proj = project_for_telegram_chat(db, chat.id)
+        if not proj:
+            await message.answer(
+                "📎 Отчёт доступен <b>только в чате проекта</b> с алертами "
+                "(тот же chat id, что при <code>/register</code>).",
+                parse_mode="HTML",
+            )
+            return
+
         start, end = default_range_days(7)
-        blob = build_excel_report(db, start, end, None)
+        label = f"{proj.name} ({proj.id})"
+        blob = build_excel_report(
+            db, start, end, proj.id, project_label=label
+        )
     finally:
         db.close()
-    cap = f"Отчёт {start.date()} — {end.date()}"
-    fname = f"weekly_{start.date()}_{end.date()}.xlsx"
+    cap = f"«{proj.name}» — {start.date()} — {end.date()}"
+    safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in proj.name)[:40]
+    fname = f"report_{safe_name}_{start.date()}_{end.date()}.xlsx"
     await message.answer_document(
         BufferedInputFile(blob, filename=fname),
         caption=cap,

@@ -306,7 +306,18 @@ def process_event(self, event_id: str):
         logger.info("Event %s processed successfully, linked to group %s", event_id, error_group.id)
 
     except Exception as exc:
-        db.rollback()
+        try:
+            db.rollback()
+        except Exception as rb_err:
+            logger.warning(
+                "Rollback failed for event %s (connection may be stale): %s",
+                event_id,
+                rb_err,
+            )
+            try:
+                db.invalidate()
+            except Exception:
+                pass
         logger.error("Error processing event %s: %s", event_id, exc)
         if self.request.retries < self.max_retries:
             raise self.retry(exc=exc, countdown=2**self.request.retries) from exc

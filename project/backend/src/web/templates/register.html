@@ -5,46 +5,128 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Подключить проект — Error Monitor</title>
   <style>
-    :root { font-family: system-ui, sans-serif; line-height: 1.5; color: #1a1a1a; }
-    body { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
-    h1 { font-size: 1.35rem; }
-    .card { border: 1px solid #ddd; border-radius: 10px; padding: 1.25rem; margin-top: 1rem; }
-    label { display: block; font-weight: 600; margin-top: 0.75rem; }
-    input[type="text"] { width: 100%; max-width: 28rem; padding: 0.45rem 0.6rem; margin-top: 0.25rem; box-sizing: border-box; }
-    .hint { font-size: 0.85rem; color: #555; margin-top: 0.25rem; }
+    :root {
+      --bg: #f4f6fb;
+      --card: #fff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --accent: #4f46e5;
+      --accent-hover: #4338ca;
+      --border: #e2e8f0;
+      --err-bg: #fef2f2;
+      --err-border: #fecaca;
+      --err-text: #991b1b;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      line-height: 1.55;
+      color: var(--text);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      background-image: radial-gradient(ellipse 100% 60% at 50% -10%, rgba(79, 70, 229, 0.08), transparent);
+    }
+    .shell { max-width: 40rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+    .nav-top {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      font-size: 0.9rem;
+    }
+    .nav-top a { color: var(--accent); text-decoration: none; font-weight: 500; }
+    .nav-top a:hover { text-decoration: underline; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.5rem; letter-spacing: -0.02em; }
+    .lead { color: var(--muted); margin: 0 0 1.25rem; font-size: 1rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.5rem 1.35rem;
+      box-shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+    }
+    label { display: block; font-weight: 600; margin-top: 0.9rem; font-size: 0.9rem; }
+    input[type="text"] {
+      width: 100%;
+      max-width: 100%;
+      padding: 0.55rem 0.75rem;
+      margin-top: 0.35rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 1rem;
+    }
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+    }
+    .hint { font-size: 0.82rem; color: var(--muted); margin-top: 0.35rem; line-height: 1.45; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.4rem 1rem; margin-top: 0.5rem; }
-    .grid label { font-weight: normal; display: flex; align-items: center; gap: 0.35rem; margin: 0; }
-    button { margin-top: 1.25rem; padding: 0.55rem 1.2rem; font-size: 1rem; cursor: pointer; border-radius: 8px; border: none; background: #2563eb; color: #fff; }
-    button:hover { background: #1d4ed8; }
-    .err { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; }
-    code { background: #f4f4f5; padding: 0.1rem 0.35rem; border-radius: 4px; }
+    .grid label { font-weight: normal; display: flex; align-items: center; gap: 0.4rem; margin: 0; }
+    button {
+      margin-top: 1.35rem;
+      padding: 0.65rem 1.4rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 10px;
+      border: none;
+      background: linear-gradient(135deg, var(--accent), #6366f1);
+      color: #fff;
+      box-shadow: 0 6px 20px rgba(79, 70, 229, 0.35);
+    }
+    button:hover { background: linear-gradient(135deg, var(--accent-hover), #4f46e5); }
+    .err {
+      background: var(--err-bg);
+      border: 1px solid var(--err-border);
+      color: var(--err-text);
+      padding: 0.85rem 1rem;
+      border-radius: 12px;
+      margin-bottom: 1rem;
+      font-size: 0.92rem;
+    }
+    code { background: #f1f5f9; padding: 0.12rem 0.35rem; border-radius: 5px; font-size: 0.88em; }
+    .foot { margin-top: 1.25rem; font-size: 0.85rem; color: var(--muted); }
+    .foot a { color: var(--accent); }
   </style>
 </head>
 <body>
-  <h1>Подключение проекта к мониторингу</h1>
-  <p>Укажите стек и <strong>Telegram chat id</strong> — уведомления об ошибках будут приходить <strong>только</strong> в этот чат. Затем скопируйте <code>project_id</code> и API-ключ в код.</p>
-
-  {% if error %}
-  <div class="err">{{ error }}</div>
-  {% endif %}
-
-  <form method="post" action="/register" class="card">
-    <label for="project_name">Название проекта</label>
-    <input type="text" id="project_name" name="project_name" value="Мой проект" maxlength="200" />
-
-    <label for="telegram_chat_id">Telegram chat id</label>
-    <input type="text" id="telegram_chat_id" name="telegram_chat_id" required placeholder="-1001234567890" inputmode="numeric" />
-    <p class="hint">Как узнать id группы: добавьте бота в группу, напишите в группу любое сообщение, откройте в браузере <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> и в JSON найдите <code>chat.id</code> — подставляйте его <strong>целиком</strong> (часто для супергрупп это <code>-100…</code>, для старых обычных групп — просто отрицательное число <strong>без</strong> <code>100</code> в середине). Число из «информации о группе» в клиенте Telegram может не совпадать с id для API. Токен в <code>.env</code> должен быть от <strong>того же</strong> бота, что добавлен в группу.</p>
-
-    <label>Стек (можно несколько)</label>
-    <div class="grid">
-      {% for c in stack_choices %}
-      <label><input type="checkbox" name="stack" value="{{ c.value }}" /> {{ c.label }}</label>
-      {% endfor %}
+  <div class="shell">
+    <div class="nav-top">
+      <a href="/">← На главную</a>
+      <span style="color:var(--border)">|</span>
+      <a href="/docs/sdk">Инструкции SDK</a>
+      <span style="color:var(--border)">|</span>
+      <a href="/docs">OpenAPI</a>
     </div>
 
-    <button type="submit">Создать проект и получить ключи</button>
-  </form>
-  <p class="hint"><a href="/docs/sdk">Инструкции по подключению</a> · <a href="/docs">OpenAPI</a> · JSON: <code>POST /api/register</code></p>
+    <h1>Подключение проекта</h1>
+    <p class="lead">Укажите стек и <strong>Telegram chat id</strong> — уведомления об ошибках будут приходить <strong>только</strong> в этот чат. Команды <code>/stats</code> и <code>/report</code> в боте работают в этом же чате (статистика по вашему проекту).</p>
+
+    {% if error %}
+    <div class="err">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/register" class="card">
+      <label for="project_name">Название проекта</label>
+      <input type="text" id="project_name" name="project_name" value="Мой проект" maxlength="200" />
+
+      <label for="telegram_chat_id">Telegram chat id</label>
+      <input type="text" id="telegram_chat_id" name="telegram_chat_id" required placeholder="-1001234567890" inputmode="numeric" />
+      <p class="hint">Как узнать id группы: добавьте бота в группу, напишите любое сообщение, откройте <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> и найдите <code>chat.id</code> (часто <code>-100…</code> для супергрупп). Токен в <code>.env</code> должен быть от <strong>того же</strong> бота.</p>
+
+      <label>Стек (можно несколько)</label>
+      <div class="grid">
+        {% for c in stack_choices %}
+        <label><input type="checkbox" name="stack" value="{{ c.value }}" /> {{ c.label }}</label>
+        {% endfor %}
+      </div>
+
+      <button type="submit">Создать проект и получить ключи</button>
+    </form>
+    <p class="foot">JSON API: <code>POST /api/register</code> · Клонирование репозитория: <a href="https://github.com/Bebric123/diplom" rel="noopener noreferrer">GitHub</a></p>
+  </div>
 </body>
 </html>

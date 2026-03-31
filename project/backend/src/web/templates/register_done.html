@@ -3,34 +3,71 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Проект создан</title>
+  <title>Проект создан — Error Monitor</title>
   <style>
-    :root { font-family: system-ui, sans-serif; line-height: 1.5; color: #1a1a1a; }
-    body { max-width: 42rem; margin: 2rem auto; padding: 0 1rem; }
-    .ok { background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1rem; border-radius: 10px; }
-    .secret { background: #fffbeb; border: 1px solid #fcd34d; padding: 1rem; border-radius: 10px; margin: 1rem 0; word-break: break-all; }
-    code { font-size: 0.9rem; }
-    a { color: #2563eb; }
+    :root {
+      --bg: #f4f6fb;
+      --ok-bg: #ecfdf5;
+      --ok-border: #6ee7b7;
+      --secret-bg: #fffbeb;
+      --secret-border: #fcd34d;
+      --text: #1e293b;
+      --muted: #64748b;
+      --accent: #4f46e5;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      line-height: 1.55;
+      color: var(--text);
+    }
+    body { margin: 0; min-height: 100vh; background: var(--bg); }
+    .shell { max-width: 42rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+    .nav-top { margin-bottom: 1.25rem; font-size: 0.9rem; }
+    .nav-top a { color: var(--accent); text-decoration: none; font-weight: 500; }
+    .nav-top a:hover { text-decoration: underline; }
+    h1 { font-size: 1.45rem; margin: 0 0 1rem; letter-spacing: -0.02em; }
+    .ok {
+      background: var(--ok-bg);
+      border: 1px solid var(--ok-border);
+      padding: 1.15rem 1.25rem;
+      border-radius: 14px;
+      margin-bottom: 1rem;
+    }
+    .secret {
+      background: var(--secret-bg);
+      border: 1px solid var(--secret-border);
+      padding: 1.15rem 1.25rem;
+      border-radius: 14px;
+      margin: 1rem 0;
+      word-break: break-all;
+    }
+    code { font-size: 0.88rem; background: rgba(255,255,255,0.6); padding: 0.15rem 0.4rem; border-radius: 5px; }
+    .hint { font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem; }
+    .links { margin-top: 1.5rem; }
+    .links a { color: var(--accent); font-weight: 500; display: inline-block; margin-right: 1rem; margin-top: 0.35rem; }
   </style>
 </head>
 <body>
-  <h1>Готово: {{ project_name }}</h1>
-  <div class="ok">
-    <p><strong>Project ID</strong> (в SDK как <code>project_id</code> / <code>projectId</code>):</p>
-    <p><code>{{ project_id }}</code></p>
-    <p>Чат для алертов: <code>{{ telegram_chat_id }}</code></p>
-    {% if stack and stack|length > 0 %}
-    <p>Стек: {% for s in stack %}<code>{{ s }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
-    {% endif %}
-  </div>
+  <div class="shell">
+    <div class="nav-top"><a href="/">← На главную</a></div>
+    <h1>Готово: {{ project_name }}</h1>
+    <div class="ok">
+      <p><strong>Project ID</strong> (в SDK как <code>project_id</code> / <code>projectId</code>):</p>
+      <p><code>{{ project_id }}</code></p>
+      <p>Чат для алертов и команд бота (<code>/stats</code>, <code>/report</code>): <code>{{ telegram_chat_id }}</code></p>
+      {% if stack and stack|length > 0 %}
+      <p>Стек: {% for s in stack %}<code>{{ s }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+      {% endif %}
+    </div>
 
-  <div class="secret">
-    <p><strong>API-ключ (ингест)</strong> — показывается <strong>один раз</strong>. Сохраните в .env / секретах:</p>
-    <p><code id="key">{{ api_key }}</code></p>
-    <p class="hint">В запросах: заголовок <code>Authorization: Bearer …</code> или <code>X-Api-Key</code> (если на сервере включён <code>COLLECTOR_REQUIRE_API_KEY</code>).</p>
-  </div>
+    <div class="secret">
+      <p><strong>API-ключ (ингест)</strong> — показывается <strong>один раз</strong>. Сохраните в секретах:</p>
+      <p><code id="key">{{ api_key }}</code></p>
+      <p class="hint">В запросах: <code>Authorization: Bearer …</code> или <code>X-Api-Key</code> (если на сервере включён <code>COLLECTOR_REQUIRE_API_KEY</code>).</p>
+    </div>
 
-  <p><a href="/docs/sdk">Инструкции: как подключить SDK и слать логи</a></p>
-  <p><a href="/register">Зарегистрировать ещё один проект</a></p>
+    <div class="links">
+      <a href="/docs/sdk">Инструкции: SDK и логи</a>
+      <a href="/register">Ещё один проект</a>
+    </div>
+  </div>
 </body>
 </html>

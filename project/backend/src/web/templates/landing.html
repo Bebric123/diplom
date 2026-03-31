@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Error Monitor — коллектор ошибок</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --surface2: #243044;
+      --text: #e8eef7;
+      --muted: #8b9cb3;
+      --accent: #38bdf8;
+      --accent2: #818cf8;
+      --card-border: rgba(129, 140, 248, 0.25);
+      --radius: 14px;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      line-height: 1.55;
+      color: var(--text);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse 120% 80% at 50% -20%, rgba(56, 189, 248, 0.18), transparent),
+        radial-gradient(ellipse 80% 50% at 100% 50%, rgba(129, 140, 248, 0.12), transparent);
+    }
+    .wrap { max-width: 56rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    .hero {
+      text-align: center;
+      padding: 2.5rem 1rem 2rem;
+    }
+    .hero h1 {
+      font-size: clamp(1.75rem, 4vw, 2.35rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 0 0 0.75rem;
+      background: linear-gradient(135deg, #f0f9ff 0%, var(--accent) 50%, var(--accent2) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      color: var(--muted);
+      max-width: 36rem;
+      margin: 0 auto 1.75rem;
+      font-size: 1.05rem;
+    }
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+    a.btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.65rem 1.35rem;
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    a.btn:hover { transform: translateY(-1px); }
+    a.btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #0f1419;
+      box-shadow: 0 8px 28px rgba(56, 189, 248, 0.35);
+    }
+    a.btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--card-border);
+    }
+    .grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+      margin-top: 2.5rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.35rem;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    .card:hover {
+      border-color: rgba(56, 189, 248, 0.4);
+      background: #1e2838;
+    }
+    .card h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.05rem;
+      color: var(--accent);
+    }
+    .card p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    .card a {
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .card a:hover { text-decoration: underline; color: var(--accent); }
+    footer {
+      margin-top: 3rem;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>Error Monitor</h1>
+      <p>Сбор ошибок и логов из приложений, уведомления в Telegram, сводки и отчёты. Зарегистрируйте проект и подключите SDK за несколько минут.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/register">Подключить проект</a>
+        <a class="btn btn-secondary" href="/docs/sdk">Инструкции и примеры</a>
+        <a class="btn btn-secondary" href="/docs">OpenAPI</a>
+      </div>
+    </header>
+
+    <div class="grid">
+      <article class="card">
+        <h2>Регистрация</h2>
+        <p><a href="/register">Форма /register</a> — <code style="color:var(--accent);font-size:0.85em;">project_id</code>, API-ключ и привязка Telegram-чата для алертов.</p>
+      </article>
+      <article class="card">
+        <h2>SDK</h2>
+        <p>Python, Node.js, PHP и сырой HTTP: события <code style="color:var(--accent);font-size:0.85em;">/track</code> и загрузка логов <code style="color:var(--accent);font-size:0.85em;">/logs/upload</code>.</p>
+      </article>
+      <article class="card">
+        <h2>Состояние API</h2>
+        <p><a href="/health">/health</a> — проверка доступности коллектора и БД.</p>
+      </article>
+    </div>
+
+    <footer>
+      Исходный код и установка из GitHub — см. <a href="https://github.com/Bebric123/diplom" rel="noopener noreferrer">репозиторий</a>.
+    </footer>
+  </div>
+</body>
+</html>
