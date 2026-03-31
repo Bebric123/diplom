@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, joinedload
 from src.core.config import get_settings
 from src.core.database import SessionLocal
 from src.core.models import ErrorGroup, ErrorTask, Event, EventContext, Project
-from src.services.classifier import analyze_error_with_gigachat
+from src.services.classifier import analyze_error
 
 logger = logging.getLogger(__name__)
 
@@ -418,35 +418,52 @@ def build_message(event: dict, task: ErrorTask, analysis: dict) -> str:
     status_emoji = get_task_status_emoji(task)
     status_text = get_task_status_text(task)
 
+    occ = event.get("group_occurrence_count")
+    occurrence_line = ""
+    if occ is not None:
+        try:
+            n = int(occ)
+        except (TypeError, ValueError):
+            n = None
+        if n is not None and n >= 1:
+            occurrence_line = (
+                f"📈 <b>Повторов ошибки (всего):</b> {n}\n"
+                f"<i>Каждое принятое событие увеличивает счётчик; новое сообщение в чат "
+                f"могло не отправиться из‑за троттлинга.</i>\n"
+            )
+
     if "exception" in action:
         title = f"{platform_emoji} <b>❌ ИСКЛЮЧЕНИЕ: {action.replace('exception:', '').strip()}</b>"
     else:
         title = f"{platform_emoji} <b>{platform.upper()} СОБЫТИЕ</b>"
 
-    message = "\n".join([
+    parts = [
         title,
         "",
-        # f"🆔 <b>ID задачи:</b> <code>{task.id}</code>",
         f"👤 <b>Пользователь:</b> <code>{meta.get('user_id', 'anonymous')}</code>",
         f"🖱 <b>Действие:</b> <code>{action}</code>",
         f"🌐 <b>Страница:</b> {meta.get('page_url', 'N/A')}",
         "",
-        f"<b>📊 Контекст:</b>",
+        "<b>📊 Контекст:</b>",
         context_text,
         "",
-        f"<b>📋 Детали:</b>",
+        "<b>📋 Детали:</b>",
         meta_text,
         log_snip,
-        f"<b>🔍 Анализ:</b>",
-        f"{severity_emoji} <b>Срочность:</b> {severity.upper()}",
-        f"{criticality_emoji} <b>Критичность:</b> {criticality.upper()}",
-        f"💡 <b>Рекомендация:</b> {analysis.get('recommendation', '—')}",
-        "",
-        f"<b>📌 Статус:</b> {status_emoji} {status_text}",
-        # f"🔁 <b>Обновлений:</b> {task.notification_count}"
-    ])
-
-    return message
+    ]
+    if occurrence_line:
+        parts.append(occurrence_line.rstrip("\n"))
+    parts.extend(
+        [
+            "<b>🔍 Анализ:</b>",
+            f"{severity_emoji} <b>Срочность:</b> {severity.upper()}",
+            f"{criticality_emoji} <b>Критичность:</b> {criticality.upper()}",
+            f"💡 <b>Рекомендация:</b> {analysis.get('recommendation', '—')}",
+            "",
+            f"<b>📌 Статус:</b> {status_emoji} {status_text}",
+        ]
+    )
+    return "\n".join(parts)
 
 async def send_telegram_message_async(
     event: dict,
@@ -471,8 +488,7 @@ async def send_telegram_message_async(
         # Безопасное имя файла
         safe_user = re.sub(r"[^a-zA-Z0-9_-]", "_", str(event.get("meta", {}).get("user_id", "anonymous"))[:20])
         
-        # Анализируем через GigaChat
-        analysis = analyze_error_with_gigachat(event)
+        analysis = analyze_error(event)
 
         db = SessionLocal()
         try:
@@ -563,7 +579,8 @@ async def update_telegram_message(task_id: uuid.UUID):
                 return
 
             event_dict = _event_to_analyzer_payload(event)
-            analysis = analyze_error_with_gigachat(event_dict)
+            event_dict["group_occurrence_count"] = error_group.occurrence_count
+            analysis = analyze_error(event_dict)
             updated_message = build_message(event_dict, task, analysis)
 
             keyboard = task_inline_keyboard(task, str(task_id))

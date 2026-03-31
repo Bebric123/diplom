@@ -50,10 +50,10 @@ async def ok():
 
 @app.get("/boom")
 async def boom():
-    raise RuntimeError("тестовая ошибка FastAPI для SDK")
+    raise InvalidRequestError("тестовая ошибка FastAPI для SDK")
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8010)
+    uvicorn.run(app, host="127.0.0.1", port=5000)

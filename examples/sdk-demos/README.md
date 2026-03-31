@@ -48,7 +48,7 @@ $env:MONITOR_API_KEY="ваш-ключ"
 python 01_minimal_client.py
 ```
 
-**Безопасность коллектора (переменные в `.env` бэкенда):** `COLLECTOR_REQUIRE_API_KEY=true` — требовать `Authorization: Bearer …` или `X-Api-Key` для `/track`, `/logs/upload` и чтения логов; `API_KEY_PEPPER` — необязательная строка, добавляемая перед хешированием ключа (тогда в БД храните SHA256(pepper+ключ) в hex); `CORS_ALLOW_ORIGINS` — список через запятую или `*`; `TRUSTED_HOSTS` — доверенные `Host` заголовки; `HSTS_MAX_AGE` — если задан (секунды), отдаётся заголовок HSTS; `GIGACHAT_VERIFY_SSL=true` — проверять TLS к GigaChat (по умолчанию выключено из‑за окружений с кастомными ЦС).
+**Безопасность коллектора (переменные в `.env` бэкенда):** `COLLECTOR_REQUIRE_API_KEY=true` — требовать `Authorization: Bearer …` или `X-Api-Key` для `/track`, `/logs/upload` и чтения логов; `API_KEY_PEPPER` — необязательная строка, добавляемая перед хешированием ключа (тогда в БД храните SHA256(pepper+ключ) в hex); `CORS_ALLOW_ORIGINS` — список через запятую или `*`; `TRUSTED_HOSTS` — доверенные `Host` заголовки; `HSTS_MAX_AGE` — если задан (секунды), отдаётся заголовок HSTS. Анализ ошибок для Telegram — только локальный GGUF (`LOCAL_LLM_GGUF_PATH`), без облачных LLM.
 
 ## Python (`examples/sdk-demos/python`)
 

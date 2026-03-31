@@ -18,7 +18,7 @@ from src.core.models import (
     Platform,
     SeverityLevel,
 )
-from src.services.classifier import analyze_error_with_gigachat
+from src.services.classifier import analyze_error
 from src.services.notifier import (
     advisory_lock_notify_group,
     advisory_unlock_notify_group,
@@ -105,16 +105,17 @@ def normalize_criticality(criticality_str: str) -> str:
 def process_event(self, event_id: str):
     db = SessionLocal()
     try:
-        event = (
-            db.query(Event)
+        stmt = (
+            select(Event)
             .options(
                 joinedload(Event.context).joinedload(EventContext.platform),
                 joinedload(Event.url),
                 joinedload(Event.error),
             )
-            .filter(Event.id == uuid.UUID(event_id))
-            .first()
+            .where(Event.id == uuid.UUID(event_id))
+            .limit(1)
         )
+        event = db.execute(stmt).unique().scalars().first()
 
         if not event:
             raise ValueError(f"Event {event_id} not found")
@@ -162,7 +163,7 @@ def process_event(self, event_id: str):
             "meta": event.metadata_ or {},
         }
 
-        result = analyze_error_with_gigachat(payload)
+        result = analyze_error(payload)
 
         severity_str = normalize_severity(result.get("severity", "средняя"))
         criticality_str = normalize_criticality(result.get("criticality", "требует внимания"))
@@ -198,12 +199,12 @@ def process_event(self, event_id: str):
             f"{error_type}|{stack}|{page_url}".encode()
         ).hexdigest()
 
-        error_group = db.execute(
+        error_group = db.scalars(
             select(ErrorGroup).where(
                 ErrorGroup.project_id == event.project_id,
                 ErrorGroup.group_hash == group_hash,
             )
-        ).scalar_one_or_none()
+        ).first()
 
         title = error_message[:100]
         recommendation = result.get("recommendation", "")
@@ -271,6 +272,7 @@ def process_event(self, event_id: str):
                                 "recommendation": recommendation,
                                 "page_url": page_url,
                                 "group_id": str(error_group.id),
+                                "group_occurrence_count": error_group.occurrence_count,
                                 "user_id": str((event.metadata_ or {}).get("user_id", "anonymous")),
                                 "action": event.action,
                                 "context": context_data,
@@ -415,6 +417,7 @@ def process_log_file(self, log_id: str):
                         )
                     else:
                         payload = build_log_alert_event_dict(log_file, errors, warnings, log_id)
+                        payload["group_occurrence_count"] = error_group.occurrence_count
                         meta = dict(payload.get("meta") or {})
                         ev = Event(
                             project_id=log_file.project_id,

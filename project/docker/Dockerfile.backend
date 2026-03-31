@@ -3,17 +3,22 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Установка зависимостей ОС
-RUN apt-get update && apt-get install -y \
+# Установка зависимостей ОС (cmake/g++ — сборка llama-cpp-python из sdist, если нет подходящего wheel)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    g++ \
+    cmake \
+    ninja-build \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Копируем зависимости
 COPY backend/requirements/base.txt /app/requirements.txt
 
-# Устанавливаем Python-пакеты
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# llama-cpp-python: предпочитаем wheel; при скачивании sdist (~60 MB) дефолтный таймаут pip часто падает
+ENV PIP_DEFAULT_TIMEOUT=600
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir --prefer-binary --retries 15 --timeout 600 -r /app/requirements.txt
 
 # Копируем ВЕСЬ backend
 COPY backend/ /app/

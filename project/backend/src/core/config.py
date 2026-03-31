@@ -13,9 +13,20 @@ class Settings(BaseSettings):
     postgres_password: str = "postgres"
     postgres_db: str = "Monitoring"
 
-    # GigaChat
-    gigachat_auth_key: str
-    gigachat_verify_ssl: bool = False
+    # Анализ ошибок в Telegram: local_gguf (локальный GGUF) | none (заглушка без ИИ)
+    error_analysis_backend: str = "local_gguf"
+    # Путь к .gguf: задавайте в .env (LOCAL_LLM_GGUF_PATH). В Docker — путь внутри контейнера (том).
+    # На Windows в .env используйте прямые слэши: C:/Users/.../model.gguf — иначе \U в путях ломает разбор.
+    local_llm_gguf_path: str = ""
+    local_llm_n_ctx: int = 8192
+    # Thinking-модели могут сгенерировать много служебного текста до JSON — при обрезке будет «нет JSON»
+    local_llm_max_tokens: int = 1024
+    local_llm_n_threads: int = 0
+    local_llm_n_gpu_layers: int = 0
+    # Снижает зацикливание на слабых квантах (IQ1 и т.п.); типично 1.1–1.25
+    local_llm_repeat_penalty: float = 1.18
+    # Ограничить вывод схемой JSON (llama.cpp grammar); сильно помогает против «простыней» вместо JSON
+    local_llm_json_grammar: bool = True
 
     # Telegram (токен бота обязателен; chat_id — опционально: для еженедельных отчётов в «общий» чат)
     telegram_bot_token: str

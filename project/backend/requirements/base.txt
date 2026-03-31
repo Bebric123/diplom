@@ -27,3 +27,6 @@ cryptography==41.0.7
 openpyxl>=3.1.0
 
 aiogram>=3.0.0
+
+# Локальный анализ ошибок для Telegram (GGUF). Часто ставится из sdist — в Docker нужны cmake/g++ (см. Dockerfile.backend).
+llama-cpp-python>=0.2.90

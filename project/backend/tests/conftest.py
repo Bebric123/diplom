@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 
 # Pydantic Settings: обязательные поля в .env при разработке
-os.environ.setdefault("GIGACHAT_AUTH_KEY", "test-gigachat-key-not-used-in-unit-tests")
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "7200000000:FAKEtesttokenfortests")
 
 # Отдельная тестовая БД (рекомендуется monitoring_test), не продакшен-Monitoring

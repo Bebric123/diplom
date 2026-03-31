@@ -19,8 +19,11 @@
    - `TELEGRAM_BOT_TOKEN` — токен бота для уведомлений и кнопок
    - при включённой проверке ключей: `COLLECTOR_REQUIRE_API_KEY`, при необходимости `API_KEY_PEPPER`
    - `CORS_ALLOW_ORIGINS` — для запросов с фронта (или `*` только для разработки)
+   - **`LOCAL_LLM_GGUF_PATH`** — путь **внутри контейнера**, каталог **`./models` → `/models`** смонтирован у **`backend`**, **`worker`** и **`bot`** (бот при нажатии кнопок заново вызывает анализ и правит текст сообщения). Положите `.gguf` в **`project/docker/models/`** и укажите имя файла, например `LOCAL_LLM_GGUF_PATH=/models/имя_файла.gguf`. Без файла — запасной текст в уведомлении; без ИИ: `ERROR_ANALYSIS_BACKEND=none`
 
 Точный список переменных смотрите в `project/backend/src/core/config.py` и в комментариях к вашему `.env`.
+
+Если при `docker compose build` не находится готовый wheel для `llama-cpp-python`, добавьте в `Dockerfile.backend` пакеты сборки (`cmake`, `build-essential`) или зафиксируйте версию образа с подходящим wheel под вашу платформу.
 
 ## Запуск
 
@@ -30,6 +33,14 @@ docker compose up -d --build
 ```
 
 API: [http://127.0.0.1:8000](http://127.0.0.1:8000), health: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health).
+
+### Celery worker и нагрузка / LLM
+
+Воркер запускается с **`CELERY_WORKER_CONCURRENCY`** (по умолчанию **1** в `docker-compose.yml`). При **локальном GGUF** каждый дочерний процесс Celery может поднять свою копию модели в памяти: concurrency как число ядер при ограниченной RAM Docker часто даёт **`WorkerLostError: signal 9 (SIGKILL)`** (OOM) и сопутствующие сбои PostgreSQL. Для чистого нагрузочного теста приёма событий без ИИ можно выставить **`ERROR_ANALYSIS_BACKEND=none`** и при необходимости осторожно поднять concurrency; с LLM оставляйте **1**, если не увеличиваете лимит памяти контейнера/хоста.
+
+### Ошибка `Temporary failure in name resolution` / `redis:6379`
+
+В `.env` для контейнеров должен быть **`REDIS_URL=redis://redis:6379/0`** (имя сервиса из `docker-compose.yml`, не `localhost`). Если воркер пишет **Error -3 connecting to redis** — чаще всего краткий сбой DNS у Docker Desktop (Windows): выполните `docker compose restart redis worker` или перезапустите Docker. В коде Celery включены повторные попытки подключения к брокеру.
 
 ## Резервные копии PostgreSQL
 

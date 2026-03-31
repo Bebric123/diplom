@@ -1,0 +1,4 @@
+# Зависимость для локального ИИ теперь в base.txt (llama-cpp-python).
+# Этот файл оставлен для обратной совместимости со старыми инструкциями:
+#   pip install -r requirements/local_llm.txt
+-r base.txt

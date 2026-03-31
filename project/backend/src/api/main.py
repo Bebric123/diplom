@@ -350,6 +350,7 @@ async def process_log_sync(log_file: LogFile, db: Session):
                     payload = build_log_alert_event_dict(
                         log_file, errors, warnings, str(log_file.id)
                     )
+                    payload["group_occurrence_count"] = error_group.occurrence_count
                     meta = dict(payload.get("meta") or {})
                     ev = Event(
                         project_id=log_file.project_id,
