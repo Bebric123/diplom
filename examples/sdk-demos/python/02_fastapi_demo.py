@@ -53,6 +53,15 @@ async def boom():
     raise InvalidRequestError("тестовая ошибка FastAPI для SDK")
 
 
+@app.get("/error")
+async def error():
+    raise Exception("тестовая ошибка FastAPI для SDK")
+
+@app.get("/error2")
+async def error():
+    raise Exception("тестовая ошибка FastAPI для SDK")
+
+
 if __name__ == "__main__":
     import uvicorn
 

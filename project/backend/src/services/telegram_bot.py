@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from aiogram import Bot, Dispatcher, types
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile
 from sqlalchemy import func
@@ -35,6 +36,38 @@ def format_task_id(task_id: uuid.UUID) -> str:
     short_id = full_id
     return f"<code>{short_id}</code>"
 
+
+async def _safe_callback_answer(
+    callback_query: types.CallbackQuery,
+    text: str | None = None,
+    *,
+    show_alert: bool = False,
+) -> None:
+    """
+    answerCallbackQuery нужно вызвать пока query жив (~до нескольких минут).
+    Иначе Telegram: «query is too old». Сеть до api.telegram.org может быть недоступна
+    (firewall, air-gap, DNS) — не роняем обработчик update.
+    """
+    try:
+        await callback_query.answer(text=text, show_alert=show_alert)
+    except TelegramNetworkError as e:
+        logger.warning("Telegram API недоступен (answer не отправлен): %s", e)
+        return
+    except TelegramBadRequest as e:
+        err = (getattr(e, "message", None) or str(e)).lower()
+        if any(
+            x in err
+            for x in (
+                "query is too old",
+                "response timeout expired",
+                "query id is invalid",
+            )
+        ):
+            logger.warning("Callback query устарел, answer пропущен: %s", e)
+            return
+        raise
+
+
 @dp.callback_query(lambda c: c.data and (c.data.startswith("ack_") or c.data.startswith("resolve_")))
 async def process_callback(callback_query: types.CallbackQuery):
     """Обрабатывает нажатия на кнопки (callback_data: ack_<uuid> / resolve_<uuid>)."""
@@ -46,28 +79,29 @@ async def process_callback(callback_query: types.CallbackQuery):
         action = "resolve"
         task_id_str = data[8:]
     else:
-        await callback_query.answer("Неизвестная команда")
+        await _safe_callback_answer(callback_query, "Неизвестная команда")
         return
 
     try:
         task_id = uuid.UUID(task_id_str)
     except ValueError:
-        await callback_query.answer("Неверный ID задачи")
+        await _safe_callback_answer(callback_query, "Неверный ID задачи")
         return
 
     db = SessionLocal()
     try:
         task = db.query(ErrorTask).filter(ErrorTask.id == task_id).first()
-        
+
         if not task:
-            await callback_query.answer("Задача не найдена")
+            await _safe_callback_answer(callback_query, "Задача не найдена")
             return
 
         msg = callback_query.message
         if msg and msg.chat and is_group_like_chat(msg.chat.type):
             grp = project_for_telegram_chat(db, msg.chat.id)
             if grp and task.project_id != grp.id:
-                await callback_query.answer(
+                await _safe_callback_answer(
+                    callback_query,
                     "Эта кнопка относится к другому проекту",
                     show_alert=True,
                 )
@@ -77,15 +111,26 @@ async def process_callback(callback_query: types.CallbackQuery):
 
         user = callback_query.from_user
         if user is None:
-            await callback_query.answer("Не удалось определить пользователя Telegram")
+            await _safe_callback_answer(
+                callback_query,
+                "Не удалось определить пользователя Telegram",
+            )
             return
 
         if action == "ack":
             if task.is_resolved:
-                await callback_query.answer(f"Задача {formatted_id} уже решена", show_alert=False)
+                await _safe_callback_answer(
+                    callback_query,
+                    f"Задача {formatted_id} уже решена",
+                    show_alert=False,
+                )
                 return
             if task.is_acknowledged:
-                await callback_query.answer(f"Задача {formatted_id} уже в работе", show_alert=False)
+                await _safe_callback_answer(
+                    callback_query,
+                    f"Задача {formatted_id} уже в работе",
+                    show_alert=False,
+                )
                 return
 
             task.is_acknowledged = True
@@ -94,14 +139,24 @@ async def process_callback(callback_query: types.CallbackQuery):
             task.acknowledged_by_label = _telegram_user_label(user)
             db.commit()
 
-            await callback_query.answer(f"Задача {formatted_id} взята в работу", show_alert=False)
+            # Сразу подтверждаем нажатие — до LLM в update_telegram_message (может быть долго)
+            await _safe_callback_answer(
+                callback_query,
+                f"Задача {formatted_id} взята в работу",
+                show_alert=False,
+            )
 
         elif action == "resolve":
             if task.is_resolved:
-                await callback_query.answer(f"Задача {formatted_id} уже решена", show_alert=False)
+                await _safe_callback_answer(
+                    callback_query,
+                    f"Задача {formatted_id} уже решена",
+                    show_alert=False,
+                )
                 return
             if not task.is_acknowledged:
-                await callback_query.answer(
+                await _safe_callback_answer(
+                    callback_query,
                     "Сначала нажмите «Взять в работу»",
                     show_alert=True,
                 )
@@ -113,14 +168,25 @@ async def process_callback(callback_query: types.CallbackQuery):
             task.resolved_by_label = _telegram_user_label(user)
             db.commit()
 
-            await callback_query.answer(f"Задача {formatted_id} отмечена как решённая", show_alert=False)
-        
-        # Обновляем сообщение в Telegram
-        await update_telegram_message(task_id)
-        
+            await _safe_callback_answer(
+                callback_query,
+                f"Задача {formatted_id} отмечена как решённая",
+                show_alert=False,
+            )
+
+        # Без повторного LLM: иначе бот блокируется на минуты, callback протухает, кнопка не меняется
+        try:
+            await update_telegram_message(task_id, reanalyze=False)
+        except TelegramNetworkError as net_err:
+            logger.warning("Не удалось обновить сообщение в Telegram (сеть): %s", net_err)
+
     except Exception as e:
         logger.error("Error processing callback: %s", e, exc_info=True)
-        await callback_query.answer("Произошла ошибка при обработке запроса", show_alert=True)
+        await _safe_callback_answer(
+            callback_query,
+            "Произошла ошибка при обработке запроса",
+            show_alert=True,
+        )
     finally:
         db.close()
 

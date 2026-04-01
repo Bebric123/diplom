@@ -263,6 +263,12 @@ def _analyze_local_gguf(event: dict) -> dict:
         return _fallback(ValueError("LOCAL_LLM_GGUF_PATH не задан"))
 
     user_text = _build_llm_user_text(event)
+    n_ctx = s.local_llm_n_ctx
+    max_tok = s.local_llm_max_tokens
+    grammar_cap = 256
+    if s.local_llm_fast_mode:
+        max_tok = min(max_tok, 256)
+        grammar_cap = 192
     last_err: Exception | None = None
     for attempt in range(2):
         raw = ""
@@ -271,13 +277,14 @@ def _analyze_local_gguf(event: dict) -> dict:
                 path,
                 user_text,
                 system_prompt=None,
-                n_ctx=s.local_llm_n_ctx,
-                max_tokens=s.local_llm_max_tokens,
+                n_ctx=n_ctx,
+                max_tokens=max_tok,
                 temperature=0.05,
                 repeat_penalty=s.local_llm_repeat_penalty,
                 n_threads=s.local_llm_n_threads,
                 n_gpu_layers=s.local_llm_n_gpu_layers,
                 json_grammar=s.local_llm_json_grammar,
+                json_grammar_max_tokens=grammar_cap,
             )
             if _looks_meta_without_json(raw):
                 raise ValueError("Модель выдала рассуждения вместо JSON")

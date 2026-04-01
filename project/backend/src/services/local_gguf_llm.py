@@ -57,6 +57,7 @@ def _get_incident_json_grammar():
         _grammar_instance = None
     return _grammar_instance
 
+
 _llama = None
 _llama_path: Optional[str] = None
 _lock = threading.Lock()
@@ -113,6 +114,7 @@ def generate_completion(
     n_threads: int = 0,
     n_gpu_layers: int = 0,
     json_grammar: bool = False,
+    json_grammar_max_tokens: int = 256,
 ) -> str:
     llm = get_llama(model_path, n_ctx, n_threads, n_gpu_layers)
     messages = []
@@ -120,6 +122,7 @@ def generate_completion(
         messages.append({"role": "system", "content": system_prompt.strip()})
     messages.append({"role": "user", "content": prompt})
     effective_max = max_tokens
+    cap = max(64, min(json_grammar_max_tokens, 512))
     kwargs = {
         "messages": messages,
         "temperature": temperature,
@@ -132,8 +135,7 @@ def generate_completion(
         g = _get_incident_json_grammar()
         if g is not None:
             kwargs["grammar"] = g
-            # С грамматикой ответ короткий; меньше токенов — быстрее на CPU
-            kwargs["max_tokens"] = min(effective_max, 384)
+            kwargs["max_tokens"] = min(effective_max, cap)
     out = llm.create_chat_completion(**kwargs)
     choice = (out.get("choices") or [{}])[0]
     msg = choice.get("message") or {}

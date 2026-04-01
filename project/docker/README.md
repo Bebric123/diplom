@@ -4,14 +4,11 @@
 
 ## Подготовка
 
-1. Клонируйте репозиторий:
+1. Получите код (любой вариант):
+   - **ZIP** с GitHub или **`git clone --depth 1`** — см. [QUICK_INSTALL.md](QUICK_INSTALL.md).
+   - Классический клон: `git clone https://github.com/Bebric123/diplom.git` → `cd diplom/project/docker`.
 
-   ```bash
-   git clone https://github.com/Bebric123/diplom.git
-   cd diplom/project/docker
-   ```
-
-2. Создайте файл **`.env`** в этом каталоге (`project/docker/`). Задайте как минимум:
+2. Создайте файл **`.env`** в этом каталоге (`project/docker/`). Шаблон: **`.env.example`**. Задайте как минимум:
 
    - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
    - `DATABASE_URL` — строка SQLAlchemy на сервис `db` из compose (см. существующий шаблон в репозитории, если есть)
@@ -55,3 +52,37 @@ docker compose --profile backup up -d db-backup
 ## Сборка контекста
 
 `Dockerfile.backend` ожидает контекст **`project/`** (родитель текущей папки): в `docker-compose.yml` указано `context: ..`. Запускайте команды из **`project/docker`**, а не из корня репозитория без правки путей.
+
+## Локальный ИИ и air-gap
+
+- **Данные ошибок для подписи в Telegram** обрабатываются только **локальным GGUF** (`llama-cpp-python`). В коде коллектора **нет** вызовов облачных LLM (OpenAI, GigaChat и т.д.).
+- **Telegram Bot API** требует **исходящий HTTPS** до серверов Telegram. Полная сетевая изоляция контейнеров (`internal: true` у всего стека) с работающим ботом **несовместима**. Для максимальной изоляции данных ИИ достаточно локальной модели; при необходимости ограничивайте исходящий трафик на уровне хоста/firewall (allowlist на `api.telegram.org`), либо отключайте бота и используйте только API/БД.
+- Сборка образов (`docker compose build`) на изолированной машине: заранее перенесите на узел **готовые образы** (`docker save` / `docker load`) или кэш слоёв; исходники `project/backend` всё равно нужны для типичной сборки из Dockerfile.
+
+## Ускорение локального ИИ
+
+В `.env` задайте **`LOCAL_LLM_FAST_MODE=true`** (по умолчанию в приложении уже включено): ужимаются лимиты генерации и потолок токенов при JSON-грамматике. Дополнительно уменьшайте **`LOCAL_LLM_MAX_TOKENS`**, подключайте **GPU** (`LOCAL_LLM_N_GPU_LAYERS`), выбирайте **меньшую instruct-модель** и квант **Q4_K_M**. Подробнее — [backend/README.md](../backend/README.md).
+
+На время **нагрузочного теста** приёма событий имеет смысл **`ERROR_ANALYSIS_BACKEND=none`** — воркер не вызывает LLM, очередь разгребается намного быстрее. После теста верните `local_gguf` и путь к GGUF.
+
+## Разовая очистка очереди Celery (после Locust и т.п.)
+
+Из каталога **`project/docker`**:
+
+```bash
+docker compose exec worker celery -A src.workers.celery_app.celery_app purge -f
+```
+
+Удаляет **все ожидающие** задачи из очередей брокера (сообщения в Redis). Уже **выполняющаяся** у воркера задача не отменится; чтобы прервать текущий долгий прогон LLM: `docker compose restart worker` (этот один запуск `process_event` может завершиться с ошибкой или повтором — для тестового стенда обычно приемлемо).
+
+Проверить длину очереди по умолчанию (`celery`):
+
+```bash
+docker compose exec redis redis-cli -n 0 LLEN celery
+```
+
+Полностью обнулить БД Redis для этого compose (**и брокер, и результаты Celery** — только если вам это ок):
+
+```bash
+docker compose exec redis redis-cli -n 0 FLUSHDB
+```

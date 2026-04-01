@@ -56,14 +56,15 @@ python -m src.services.telegram_bot
 |------------|----------|
 | `ERROR_ANALYSIS_BACKEND` | `local_gguf` (по умолчанию) или `none` (заглушка без ИИ) |
 | `LOCAL_LLM_GGUF_PATH` | **Обязательно** для ИИ: полный путь к файлу `.gguf` |
-| `LOCAL_LLM_N_CTX` | Контекст (по умолчанию 8192) |
-| `LOCAL_LLM_MAX_TOKENS` | Лимит ответа (по умолчанию 1024; для короткого JSON можно уменьшить) |
+| `LOCAL_LLM_N_CTX` | Контекст (по умолчанию 8192; меньше — быстрее инициализация KV, риск обрезки очень длинных логов) |
+| `LOCAL_LLM_MAX_TOKENS` | Лимит ответа (по умолчанию **384**; меньше — быстрее декодирование на CPU) |
+| `LOCAL_LLM_FAST_MODE` | `true` (по умолчанию): дополнительно ужимает `max_tokens` и потолок при JSON-грамматике; для тяжёлых промптов — `false` |
 | `LOCAL_LLM_REPEAT_PENALTY` | Штраф повторов (по умолчанию 1.18; помогает против зацикливания на слабых квантах) |
 | `LOCAL_LLM_JSON_GRAMMAR` | `true` (по умолчанию): ответ ограничен JSON-схемой (severity/criticality/recommendation) через llama.cpp grammar |
 | `LOCAL_LLM_N_THREADS` | Потоки CPU, `0` = авто |
 | `LOCAL_LLM_N_GPU_LAYERS` | Слои на GPU для llama.cpp (`0` = только CPU) |
 
-**Скорость:** 4B «Thinking» на **CPU** (`n_gpu_layers=0`) часто даёт **десятки секунд — несколько минут** на один запрос — это нормально. Быстрее: **GPU** (`LOCAL_LLM_N_GPU_LAYERS` > 0 при CUDA), **меньше `LOCAL_LLM_MAX_TOKENS`** (если модель укладывается в JSON), **не-Thinking** instruct-модель, **`CELERY_WORKER_CONCURRENCY=1`**, чтобы не грузить CPU несколькими копиями модели.
+**Скорость:** 4B «Thinking» на **CPU** (`n_gpu_layers=0`) часто даёт **десятки секунд — несколько минут** на один запрос — это нормально. Быстрее: **`LOCAL_LLM_FAST_MODE=true`**, **GPU** (`LOCAL_LLM_N_GPU_LAYERS` > 0 при CUDA), **меньше `LOCAL_LLM_MAX_TOKENS`**, **не-Thinking** instruct-модель, **`CELERY_WORKER_CONCURRENCY=1`**, чтобы не грузить CPU несколькими копиями модели.
 
 Если модель всё равно «залипает» в повторяющийся текст вместо JSON (типично для **IQ1** и части Thinking-сборок), код после неудачных попыток подставляет **эвристическую** классификацию по тексту ошибки; для стабильного JSON лучше взять квант **Q4_K_M** (или выше) и **instruct без thinking**.
 

@@ -18,7 +18,15 @@ from sqlalchemy.orm import Session, joinedload
 
 from src.core.config import get_settings
 from src.core.database import SessionLocal
-from src.core.models import ErrorGroup, ErrorTask, Event, EventContext, Project
+from src.core.models import (
+    CriticalityLevel,
+    ErrorGroup,
+    ErrorTask,
+    Event,
+    EventContext,
+    Project,
+    SeverityLevel,
+)
 from src.services.classifier import analyze_error
 
 logger = logging.getLogger(__name__)
@@ -54,6 +62,7 @@ THROTTLE_CONFIG = {
     "высокая": 900,
     "критическая": 300,
 }
+
 
 def get_platform_emoji(platform: str) -> str:
     """Возвращает эмодзи для платформы"""
@@ -204,6 +213,22 @@ def task_inline_keyboard(task: Optional[ErrorTask], task_id_str: str) -> Optiona
     )
 
 
+def _analysis_from_error_group(db: Session, error_group: ErrorGroup) -> dict:
+    """Текст уведомления без LLM — из уже сохранённых полей группы (кнопки ack/resolve)."""
+    sev_name = "средняя"
+    crit_name = "требует внимания"
+    if error_group.severity_id:
+        row = db.get(SeverityLevel, error_group.severity_id)
+        if row and row.name:
+            sev_name = row.name
+    if error_group.criticality_id:
+        row = db.get(CriticalityLevel, error_group.criticality_id)
+        if row and row.name:
+            crit_name = row.name
+    rec = (error_group.recommendation or "").strip() or "—"
+    return {"severity": sev_name, "criticality": crit_name, "recommendation": rec}
+
+
 def _event_to_analyzer_payload(event: Event) -> dict:
     meta = dict(event.metadata_ or {})
     page_url = meta.get("page_url", "N/A")
@@ -325,8 +350,13 @@ def update_error_group_alert_anchor(
         g.alert_last_sent_at = datetime.now(timezone.utc)
         g.alert_last_severity = (severity or "средняя").strip().lower()
 
-def create_error_task(db: Session, event_id: uuid.UUID, error_group_id: uuid.UUID, 
-                     project_id: uuid.UUID) -> ErrorTask:
+
+def create_error_task(
+    db: Session,
+    event_id: uuid.UUID,
+    error_group_id: uuid.UUID,
+    project_id: uuid.UUID,
+) -> ErrorTask:
     """Создаёт запись о задаче в БД"""
     task = ErrorTask(
         event_id=event_id,
@@ -337,9 +367,14 @@ def create_error_task(db: Session, event_id: uuid.UUID, error_group_id: uuid.UUI
     db.flush()
     return task
 
-def update_task_notification(db: Session, task_id: uuid.UUID, 
-                           telegram_message_id: int, telegram_chat_id: str,
-                           severity: str):
+
+def update_task_notification(
+    db: Session,
+    task_id: uuid.UUID,
+    telegram_message_id: int,
+    telegram_chat_id: str,
+    severity: str,
+):
     """Обновляет информацию об отправленном уведомлении"""
     try:
         task = db.query(ErrorTask).filter(ErrorTask.id == task_id).first()
@@ -555,7 +590,11 @@ async def send_telegram_message_async(
                 pass
         await bot.session.close()
 
-async def update_telegram_message(task_id: uuid.UUID):
+async def update_telegram_message(task_id: uuid.UUID, *, reanalyze: bool = True):
+    """
+    reanalyze=True — снова analyze_error (LLM в воркере ок; в боте блокирует polling на минуты).
+    reanalyze=False — подпись из error_groups (после кнопок Telegram), без GGUF.
+    """
     bot = Bot(token=_bot_token())
 
     try:
@@ -578,24 +617,44 @@ async def update_telegram_message(task_id: uuid.UUID):
                 logger.warning("Event or error group not found for task %s", task_id)
                 return
 
+            db.refresh(task)
+
             event_dict = _event_to_analyzer_payload(event)
             event_dict["group_occurrence_count"] = error_group.occurrence_count
-            analysis = analyze_error(event_dict)
+            if reanalyze:
+                analysis = analyze_error(event_dict)
+            else:
+                analysis = _analysis_from_error_group(db, error_group)
             updated_message = build_message(event_dict, task, analysis)
 
             keyboard = task_inline_keyboard(task, str(task_id))
 
+            chat_api = _telegram_chat_id_for_api(task.telegram_chat_id)
+            mid = task.telegram_message_id
+
             try:
                 await bot.edit_message_text(
-                    chat_id=_telegram_chat_id_for_api(task.telegram_chat_id),
-                    message_id=task.telegram_message_id,
+                    chat_id=chat_api,
+                    message_id=mid,
                     text=updated_message,
                     parse_mode="HTML",
                     reply_markup=keyboard,
                 )
                 logger.info("Message updated for task %s", task_id)
             except TelegramBadRequest as e:
-                if "message is not modified" not in str(e):
+                err = str(e).lower()
+                # Текст совпал с предыдущим — Telegram не меняет сообщение и часто не трогает клавиатуру
+                if "message is not modified" in err and keyboard is not None:
+                    try:
+                        await bot.edit_message_reply_markup(
+                            chat_id=chat_api,
+                            message_id=mid,
+                            reply_markup=keyboard,
+                        )
+                        logger.info("Reply markup updated for task %s (text unchanged)", task_id)
+                    except TelegramBadRequest as e2:
+                        logger.error("Telegram edit_message_reply_markup error: %s", e2)
+                elif "message is not modified" not in err:
                     logger.error("Telegram update error: %s", e)
         finally:
             db.close()
@@ -640,7 +699,7 @@ def send_telegram_message_sync(
             finally:
                 loop.close()
 
-def update_telegram_message_sync(task_id: uuid.UUID):
+def update_telegram_message_sync(task_id: uuid.UUID, *, reanalyze: bool = True):
     """
     Синхронная обёртка для обновления сообщения в Telegram
     """
@@ -648,7 +707,7 @@ def update_telegram_message_sync(task_id: uuid.UUID):
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(update_telegram_message(task_id))
+        loop.run_until_complete(update_telegram_message(task_id, reanalyze=reanalyze))
         return True
     except Exception as e:
         logger.error(f"❌ Failed to update telegram message: {e}", exc_info=True)

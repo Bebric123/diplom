@@ -4,18 +4,20 @@
 
 Репозиторий: [github.com/Bebric123/diplom](https://github.com/Bebric123/diplom).
 
-## Быстрый старт с GitHub
+## Быстрый старт
+
+**Docker (рекомендуется):** не обязательно клонировать весь git — достаточно [ZIP с GitHub](https://github.com/Bebric123/diplom/archive/refs/heads/main.zip), **`git clone --depth 1`** или sparse-checkout; см. [project/docker/QUICK_INSTALL.md](project/docker/QUICK_INSTALL.md).
 
 ```bash
-git clone https://github.com/Bebric123/diplom.git
+git clone --depth 1 https://github.com/Bebric123/diplom.git
 cd diplom
 ```
 
-Дальше проще всего поднять стек через Docker (см. [project/docker/README.md](project/docker/README.md)):
+Дальше — стек через Docker (см. [project/docker/README.md](project/docker/README.md)):
 
 ```bash
 cd project/docker
-# Скопируйте и заполните .env (см. README в том каталоге)
+copy .env.example .env   # Windows; Linux/macOS: cp .env.example .env — затем заполните
 docker compose up -d --build
 ```
 
@@ -51,7 +53,7 @@ pip install "git+https://github.com/Bebric123/diplom.git#subdirectory=project/sd
 
 ## Анализ ошибок в Telegram
 
-Используется только **локальная** GGUF-модель (`LOCAL_LLM_GGUF_PATH`, см. `project/backend/README.md`); тексты ошибок для подписи в Telegram **не** отправляются во внешние LLM. Чтобы временно отключить ИИ, задайте `ERROR_ANALYSIS_BACKEND=none`.
+Используется только **локальная** GGUF-модель (`LOCAL_LLM_GGUF_PATH`, см. `project/backend/README.md`); тексты ошибок для подписи в Telegram **не** отправляются во внешние LLM. Чтобы временно отключить ИИ, задайте `ERROR_ANALYSIS_BACKEND=none`. Для ускорения на CPU задайте **`LOCAL_LLM_FAST_MODE=true`** (включено по умолчанию) и при необходимости уменьшите **`LOCAL_LLM_MAX_TOKENS`**. Полная сетевая изоляция стека с работающим Telegram-ботом невозможна без отдельной политики исходящего трафика — см. [project/docker/README.md](project/docker/README.md) (раздел air-gap).
 
 ## Лицензия и дипломный контекст
 
