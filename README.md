@@ -1,6 +1,6 @@
 # Error Monitor
 
-Система сбора ошибок и логов из приложений: **коллектор** (FastAPI), **PostgreSQL**, **Redis/Celery**, **Telegram-бот** с кнопками «взять в работу» / «решено», краткий **локальный** анализ ошибок в уведомлениях (GGUF через `llama-cpp-python`, данные не уходят в облачные LLM).
+Система сбора ошибок и логов из приложений: **коллектор** (FastAPI), **PostgreSQL**, **Redis/Celery**, **Telegram-бот** с кнопками «взять в работу» / «решено», краткий анализ ошибок через **[Open WebUI](https://github.com/open-webui/open-webui)** (HTTP к вашей модели, настроенной в UI). На сайте коллектора — инструкции SDK, **галерея полного кода демо** (`/docs/demos`), автоочистка старых событий и логов (по умолчанию год, настраивается).
 
 Репозиторий: [github.com/Bebric123/diplom](https://github.com/Bebric123/diplom).
 
@@ -27,7 +27,7 @@ docker compose up -d --build
 
 | Путь | Назначение |
 |------|------------|
-| [project/backend](project/backend/README.md) | Коллектор API, веб-страницы (`/`, `/register`, `/docs/sdk`), бот, воркеры |
+| [project/backend](project/backend/README.md) | Коллектор API, `/`, `/register`, `/docs/sdk`, `/docs/demos`, бот, воркеры |
 | [project/docker](project/docker/README.md) | `docker-compose`: backend, worker, beat, bot, Postgres, Redis; опционально бэкапы БД |
 | [project/sdk-python](project/sdk-python) | Пакет `error-monitor-sdk` (Python) |
 | [project/sdk-js](project/sdk-js) | Пакет `error-monitor-sdk` (Node.js) |
@@ -44,16 +44,18 @@ pip install "git+https://github.com/Bebric123/diplom.git#subdirectory=project/sd
 
 ## Документация в браузере
 
-После запуска коллектора: **инструкции и примеры кода** — [http://127.0.0.1:8000/docs/sdk](http://127.0.0.1:8000/docs/sdk) (в т.ч. установка из GitHub, пути к `project/sdk-*`). **OpenAPI** — [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+После запуска: **SDK** — [http://127.0.0.1:8000/docs/sdk](http://127.0.0.1:8000/docs/sdk), **код всех демо** — [http://127.0.0.1:8000/docs/demos](http://127.0.0.1:8000/docs/demos), **OpenAPI** — [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
 ## Telegram
 
 - Алерты уходят в чат, указанный при регистрации проекта.
 - Команды **`/stats`** и **`/report`** в боте считают метрики **только по этому проекту** (нужно вызывать в том же чате, что привязан к проекту). В личке боту проект не сопоставить — команды попросят написать из группы.
 
-## Анализ ошибок в Telegram
+## Анализ ошибок и хранение
 
-Используется только **локальная** GGUF-модель (`LOCAL_LLM_GGUF_PATH`, см. `project/backend/README.md`); тексты ошибок для подписи в Telegram **не** отправляются во внешние LLM. Чтобы временно отключить ИИ, задайте `ERROR_ANALYSIS_BACKEND=none`. Для ускорения на CPU задайте **`LOCAL_LLM_FAST_MODE=true`** (включено по умолчанию) и при необходимости уменьшите **`LOCAL_LLM_MAX_TOKENS`**. Полная сетевая изоляция стека с работающим Telegram-ботом невозможна без отдельной политики исходящего трафика — см. [project/docker/README.md](project/docker/README.md) (раздел air-gap).
+**Open WebUI:** `OPEN_WEBUI_BASE_URL`, `OPEN_WEBUI_MODEL`, отключение ИИ — `ERROR_ANALYSIS_BACKEND=none`. Подробнее — [project/backend/README.md](project/backend/README.md) и [project/docker/README.md](project/docker/README.md).
+
+**Ретенция:** `DATA_RETENTION_DAYS` (например 180 или 365), `DATA_RETENTION_ENABLED=false` — чтобы отключить фоновую очистку.
 
 ## Лицензия и дипломный контекст
 

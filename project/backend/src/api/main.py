@@ -37,6 +37,29 @@ _TEMPLATES = Jinja2Templates(
 
 app = FastAPI(title="Error Monitor Collector")
 
+
+def _demo_gallery_response(request: Request):
+    from src.web.demos_catalog import load_demo_sections
+
+    return _TEMPLATES.TemplateResponse(
+        "demos.html",
+        {"request": request, "sections": load_demo_sections()},
+    )
+
+
+# Регистрируем до include_router, чтобы путь стабильно совпадал со встроенным /docs (Swagger).
+@app.get("/docs/demos", response_class=HTMLResponse, include_in_schema=False)
+def docs_demos_gallery(request: Request):
+    """Галерея исходников examples/sdk-demos (страница demos.html)."""
+    return _demo_gallery_response(request)
+
+
+@app.get("/sdk-demos", response_class=HTMLResponse, include_in_schema=False)
+def sdk_demos_gallery_alias(request: Request):
+    """Тот же контент, если /docs/demos отдаётся прокси/кэшем иначе."""
+    return _demo_gallery_response(request)
+
+
 app.include_router(onboarding_router)
 
 
@@ -347,10 +370,21 @@ async def process_log_sync(log_file: LogFile, db: Session):
                 )
             else:
                 try:
+                    from src.services.classifier import analyze_error
+                    from src.workers.tasks import normalize_criticality, normalize_severity
+
                     payload = build_log_alert_event_dict(
                         log_file, errors, warnings, str(log_file.id)
                     )
                     payload["group_occurrence_count"] = error_group.occurrence_count
+                    log_ai = analyze_error(payload)
+                    payload["analysis"] = {
+                        "severity": normalize_severity(log_ai.get("severity", "средняя")),
+                        "criticality": normalize_criticality(
+                            log_ai.get("criticality", "требует внимания")
+                        ),
+                        "recommendation": log_ai.get("recommendation", ""),
+                    }
                     meta = dict(payload.get("meta") or {})
                     ev = Event(
                         project_id=log_file.project_id,
@@ -364,6 +398,14 @@ async def process_log_sync(log_file: LogFile, db: Session):
                         db, ev.id, error_group.id, log_file.project_id
                     )
                     db.commit()
+
+                    proj_row = db.query(Project).filter(Project.id == log_file.project_id).first()
+                    payload["project_name"] = proj_row.name if proj_row else "—"
+                    payload["event_id"] = str(ev.id)
+                    payload["event_created_at"] = (
+                        ev.created_at.isoformat() if ev.created_at else ""
+                    )
+                    payload["group_id"] = str(error_group.id)
 
                     mid = await send_telegram_message_async(
                         payload,

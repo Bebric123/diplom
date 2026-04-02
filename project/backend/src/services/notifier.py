@@ -108,27 +108,27 @@ def get_criticality_emoji(criticality: str) -> str:
     return emoji_map.get(c, "❓")
 
 def format_context(context_data: dict) -> str:
-    """Форматирует контекст для отображения"""
+    """Форматирует контекст для отображения (значения экранируются для HTML)."""
     parts = []
-    
+
     if context_data.get("platform"):
-        parts.append(f"📱 Платформа: {context_data['platform']}")
+        parts.append(f"📱 Платформа: {html_escape(str(context_data['platform']))}")
     if context_data.get("language"):
-        parts.append(f"💻 Язык: {context_data['language']}")
+        parts.append(f"💻 Язык: {html_escape(str(context_data['language']))}")
     if context_data.get("os_family"):
-        parts.append(f"⚙️ ОС: {context_data['os_family']}")
+        parts.append(f"⚙️ ОС: {html_escape(str(context_data['os_family']))}")
     if context_data.get("browser_family"):
-        browser = context_data['browser_family']
+        browser = html_escape(str(context_data["browser_family"]))
         if context_data.get("browser_version"):
-            browser += f" {context_data['browser_version']}"
+            browser += f" {html_escape(str(context_data['browser_version']))}"
         parts.append(f"🌐 Браузер: {browser}")
-    
+
     return "\n".join(parts) if parts else "—"
 
 def format_metadata(metadata: dict) -> str:
-    """Форматирует метаданные для отображения"""
+    """Форматирует метаданные для отображения (HTML-экранирование значений)."""
     parts = []
-    
+
     important_fields = [
         ("filename", "📁 Файл"),
         ("errors_count", "❌ Строк error/exception"),
@@ -144,17 +144,21 @@ def format_metadata(metadata: dict) -> str:
         ("path", "📁 Путь"),
         ("query_string", "🔍 Параметры"),
     ]
-    
+
     for field, label in important_fields:
         if field in metadata and metadata[field]:
             value = metadata[field]
             if field == "duration_ms" and isinstance(value, (int, float)):
                 value = f"{value:.0f}"
-            parts.append(f"{label}: {value}")
-    
-    if "traceback" in metadata and metadata["traceback"]:
-        trace = metadata["traceback"][:200] + "..." if len(metadata["traceback"]) > 200 else metadata["traceback"]
-        parts.append(f"\n📚 Stacktrace:\n<code>{trace}</code>")
+            parts.append(f"{label}: {html_escape(str(value))}")
+
+    for stack_key in ("traceback", "stack_trace", "error_stack"):
+        raw = metadata.get(stack_key)
+        if raw:
+            st = str(raw)
+            trace = st[:280] + "…" if len(st) > 280 else st
+            parts.append(f"\n📚 Stack ({stack_key}):\n<pre>{html_escape(trace)}</pre>")
+            break
 
     return "\n".join(parts) if parts else "—"
 
@@ -468,24 +472,47 @@ def build_message(event: dict, task: ErrorTask, analysis: dict) -> str:
             )
 
     if "exception" in action:
-        title = f"{platform_emoji} <b>❌ ИСКЛЮЧЕНИЕ: {action.replace('exception:', '').strip()}</b>"
+        title = f"{platform_emoji} <b>❌ ИСКЛЮЧЕНИЕ: {html_escape(action.replace('exception:', '').strip())}</b>"
     else:
-        title = f"{platform_emoji} <b>{platform.upper()} СОБЫТИЕ</b>"
+        title = f"{platform_emoji} <b>{html_escape(platform.upper())} СОБЫТИЕ</b>"
 
-    parts = [
-        title,
-        "",
-        f"👤 <b>Пользователь:</b> <code>{meta.get('user_id', 'anonymous')}</code>",
-        f"🖱 <b>Действие:</b> <code>{action}</code>",
-        f"🌐 <b>Страница:</b> {meta.get('page_url', 'N/A')}",
-        "",
-        "<b>📊 Контекст:</b>",
-        context_text,
-        "",
-        "<b>📋 Детали:</b>",
-        meta_text,
-        log_snip,
-    ]
+    page_disp = meta.get("page_url") or event.get("page_url") or "N/A"
+    uid = html_escape(str(meta.get("user_id", "anonymous")))
+    action_esc = html_escape(str(action))
+    page_esc = html_escape(str(page_disp))
+
+    head_extra = []
+    pn = event.get("project_name")
+    if pn:
+        head_extra.append(f"🏷 <b>Проект:</b> {html_escape(str(pn))}")
+    eid = event.get("event_id")
+    if eid:
+        head_extra.append(f"🆔 <b>Событие:</b> <code>{html_escape(str(eid))}</code>")
+    gid = event.get("group_id")
+    if gid:
+        head_extra.append(f"📂 <b>Группа:</b> <code>{html_escape(str(gid))}</code>")
+    ts = event.get("event_created_at")
+    if ts:
+        head_extra.append(f"🕐 <b>Время (событие):</b> <code>{html_escape(str(ts))}</code>")
+
+    parts = [title, ""]
+    parts.extend(head_extra)
+    if head_extra:
+        parts.append("")
+    parts.extend(
+        [
+            f"👤 <b>Пользователь:</b> <code>{uid}</code>",
+            f"🖱 <b>Действие:</b> <code>{action_esc}</code>",
+            f"🌐 <b>Страница / URL:</b> {page_esc}",
+            "",
+            "<b>📊 Контекст:</b>",
+            context_text,
+            "",
+            "<b>📋 Детали:</b>",
+            meta_text,
+            log_snip,
+        ]
+    )
     if occurrence_line:
         parts.append(occurrence_line.rstrip("\n"))
     parts.extend(
@@ -523,7 +550,19 @@ async def send_telegram_message_async(
         # Безопасное имя файла
         safe_user = re.sub(r"[^a-zA-Z0-9_-]", "_", str(event.get("meta", {}).get("user_id", "anonymous"))[:20])
         
-        analysis = analyze_error(event)
+        pre = event.get("analysis")
+        if (
+            isinstance(pre, dict)
+            and pre.get("severity")
+            and pre.get("recommendation") is not None
+        ):
+            analysis = {
+                "severity": pre.get("severity", "средняя"),
+                "criticality": pre.get("criticality", "требует внимания"),
+                "recommendation": pre.get("recommendation", "—"),
+            }
+        else:
+            analysis = analyze_error(event)
 
         db = SessionLocal()
         try:
@@ -592,8 +631,8 @@ async def send_telegram_message_async(
 
 async def update_telegram_message(task_id: uuid.UUID, *, reanalyze: bool = True):
     """
-    reanalyze=True — снова analyze_error (LLM в воркере ок; в боте блокирует polling на минуты).
-    reanalyze=False — подпись из error_groups (после кнопок Telegram), без GGUF.
+    reanalyze=True — снова analyze_error (Open WebUI; в боте может долго держать polling).
+    reanalyze=False — подпись из error_groups (после кнопок Telegram), без повторного ИИ.
     """
     bot = Bot(token=_bot_token())
 
@@ -621,6 +660,13 @@ async def update_telegram_message(task_id: uuid.UUID, *, reanalyze: bool = True)
 
             event_dict = _event_to_analyzer_payload(event)
             event_dict["group_occurrence_count"] = error_group.occurrence_count
+            event_dict["group_id"] = str(error_group.id)
+            event_dict["event_id"] = str(event.id)
+            if event.created_at:
+                event_dict["event_created_at"] = event.created_at.isoformat()
+            proj_row = db.get(Project, event.project_id)
+            if proj_row:
+                event_dict["project_name"] = proj_row.name
             if reanalyze:
                 analysis = analyze_error(event_dict)
             else:

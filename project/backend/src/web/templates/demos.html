@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ru" data-demos-lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Код всех демо — Error Monitor</title>
+  <style>
+    :root {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      line-height: 1.55;
+      color: #1e293b;
+      --accent: #4f46e5;
+      --accent-soft: rgba(79, 70, 229, 0.1);
+      --border: #e2e8f0;
+      --code-bg: #0f172a;
+      --code-fg: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #f8fafc; }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      padding: 0.85rem 1.35rem;
+      border-bottom: 1px solid var(--border);
+      background: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 30;
+    }
+    .topbar a { color: var(--accent); text-decoration: none; }
+    .topbar a:hover { text-decoration: underline; }
+    .lang-switch {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .lang-switch button {
+      border: none;
+      background: transparent;
+      padding: 0.35rem 0.75rem;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .lang-switch button[aria-pressed="true"] {
+      background: var(--accent);
+      color: #fff;
+    }
+    .page { max-width: 72rem; margin: 0 auto; padding: 1rem 1rem 3.5rem; }
+    h1 { font-size: 1.45rem; margin: 0 0 0.35rem; letter-spacing: -0.02em; }
+    .sub { color: #64748b; font-size: 0.95rem; margin: 0 0 1rem; }
+    .install-box {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.15rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.9rem;
+    }
+    .install-box h2 { font-size: 0.95rem; margin: 0 0 0.5rem; color: #0f172a; }
+    .install-box ul { margin: 0.35rem 0 0; padding-left: 1.2rem; }
+    .install-box li { margin: 0.25rem 0; }
+    .install-box code { background: #f1f5f9; padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.85em; }
+    .layout {
+      display: grid;
+      grid-template-columns: min(18rem, 100%) 1fr;
+      gap: 1.25rem;
+      align-items: start;
+    }
+    @media (max-width: 52rem) {
+      .layout { grid-template-columns: 1fr; }
+    }
+    .panel {
+      position: sticky;
+      top: 3.5rem;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
+    }
+    .panel h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748b;
+      margin: 0 0 0.5rem;
+    }
+    .panel label { display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.35rem; color: #334155; }
+    .panel select {
+      width: 100%;
+      padding: 0.5rem 0.6rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 0.88rem;
+      background: #fff;
+      cursor: pointer;
+    }
+    .panel select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    .panel .hint { font-size: 0.78rem; color: #94a3b8; margin-top: 0.65rem; line-height: 1.4; }
+    .main-col { min-width: 0; }
+    details.section {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 0.85rem;
+      overflow: hidden;
+    }
+    details.section > summary {
+      cursor: pointer;
+      padding: 0.75rem 1rem;
+      font-weight: 700;
+      font-size: 1rem;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      background: linear-gradient(180deg, #fff, #f8fafc);
+    }
+    details.section > summary::-webkit-details-marker { display: none; }
+    details.section > summary::after { content: "▸"; color: #94a3b8; font-weight: 400; }
+    details.section[open] > summary::after { content: "▾"; }
+    .section-body { padding: 0 0.65rem 0.85rem; }
+    details.demo {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 0.5rem;
+      overflow: hidden;
+    }
+    details.demo > summary {
+      cursor: pointer;
+      padding: 0.55rem 0.85rem;
+      font-weight: 600;
+      font-size: 0.88rem;
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem 0.75rem;
+    }
+    details.demo > summary::-webkit-details-marker { display: none; }
+    details.demo > summary::after { content: "▸"; color: #94a3b8; font-size: 0.75rem; }
+    details.demo[open] > summary::after { content: "▾"; }
+    .fname { font-weight: 500; font-size: 0.75rem; color: #64748b; font-family: ui-monospace, monospace; }
+    .lang-badge {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #64748b;
+      background: #e2e8f0;
+      padding: 0.12rem 0.4rem;
+      border-radius: 4px;
+    }
+    .code-toolbar {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.35rem;
+      padding: 0.35rem 0.5rem;
+      background: #1e293b;
+      border-top: 1px solid #334155;
+    }
+    .code-toolbar button {
+      font-size: 0.72rem;
+      padding: 0.25rem 0.55rem;
+      border-radius: 6px;
+      border: 1px solid #475569;
+      background: #334155;
+      color: #e2e8f0;
+      cursor: pointer;
+    }
+    .code-toolbar button:hover { background: #475569; }
+    pre.code {
+      margin: 0;
+      padding: 0.85rem 1rem 1rem;
+      background: var(--code-bg);
+      color: var(--code-fg);
+      font-size: 0.74rem;
+      line-height: 1.45;
+      overflow-x: auto;
+      max-height: min(68vh, 36rem);
+    }
+    pre.code code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+    html[data-demos-lang="ru"] .lang-en { display: none !important; }
+    html[data-demos-lang="en"] .lang-ru { display: none !important; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <span>
+      <a href="/">Error Monitor</a>
+      ·
+      <a href="/docs/sdk">Инструкции SDK</a>
+      ·
+      <a href="/register">Регистрация</a>
+      ·
+      <a href="/docs">OpenAPI</a>
+    </span>
+    <div class="lang-switch" role="group" aria-label="Язык подписей">
+      <button type="button" id="btn-ru" aria-pressed="true">RU</button>
+      <button type="button" id="btn-en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <div class="page">
+    <h1 class="lang-ru">Панель: код всех демо для подключения</h1>
+    <h1 class="lang-en">Panel: full demo sources</h1>
+    <p class="sub lang-ru">
+      Ниже — те же файлы, что в <code>examples/sdk-demos</code> в GitHub: раскройте раздел или выберите файл в списке.
+      Подставьте свой <code>project_id</code>, API-ключ и URL коллектора (например <code>http://127.0.0.1:8000</code>).
+    </p>
+    <p class="sub lang-en">
+      Same sources as <code>examples/sdk-demos</code> in the repo — expand a section or pick a file from the list.
+      Use your <code>project_id</code>, API key, and collector base URL.
+    </p>
+
+    <div class="install-box">
+      <h2 class="lang-ru">Как пользоваться (установка и запуск)</h2>
+      <h2 class="lang-en">How to use (install &amp; run)</h2>
+      <ul class="lang-ru">
+        <li><strong>Коллектор:</strong> Docker — <code>project/docker</code> (<code>docker compose up</code>); локально — <code>uvicorn</code> из <code>project/backend</code> (см. README).</li>
+        <li><strong>Регистрация проекта:</strong> <a href="/register">/register</a> → сохраните UUID и ключ.</li>
+        <li><strong>SDK:</strong> пошагово — <a href="/docs/sdk">/docs/sdk</a> (Python / Node / PHP, CORS для браузера).</li>
+        <li><strong>Демо из клона:</strong> <code>git clone …</code> → каталог <code>examples/sdk-demos</code>; переменные <code>MONITOR_URL</code>, <code>MONITOR_PROJECT_ID</code>, <code>MONITOR_API_KEY</code>.</li>
+      </ul>
+      <ul class="lang-en">
+        <li><strong>Collector:</strong> Docker in <code>project/docker</code> or local <code>uvicorn</code> in <code>project/backend</code>.</li>
+        <li><strong>Project:</strong> <a href="/register">/register</a> → keep UUID + API key.</li>
+        <li><strong>SDK guide:</strong> <a href="/docs/sdk">/docs/sdk</a>.</li>
+        <li><strong>Runnable demos:</strong> clone repo → <code>examples/sdk-demos</code>; env <code>MONITOR_*</code>.</li>
+      </ul>
+    </div>
+
+    <div class="layout">
+      <aside class="panel" aria-label="Навигация по файлам">
+        <h2 class="lang-ru">Быстрый переход</h2>
+        <h2 class="lang-en">Jump to file</h2>
+        <label for="demo-picker" class="lang-ru">Выпадающий список всех файлов</label>
+        <label for="demo-picker" class="lang-en">Dropdown — all files</label>
+        <select id="demo-picker" autocomplete="off">
+          <option value="" data-placeholder-ru="— Выберите файл —" data-placeholder-en="— Choose a file —">— Выберите файл —</option>
+          {% for sec in sections %}
+          <optgroup
+            data-label-ru="{{ sec.title_ru }}"
+            data-label-en="{{ sec.title_en }}"
+            label="{{ sec.title_ru }}">
+            {% for item in sec['items'] %}
+            <option
+              value="{{ item.id }}"
+              data-label-ru="{{ item.title_ru }} — {{ item.file }}"
+              data-label-en="{{ item.title_en }} — {{ item.file }}">{{ item.title_ru }} — {{ item.file }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+        <p class="hint lang-ru">После выбора откроется блок с кодом и страница прокрутится к нему.</p>
+        <p class="hint lang-en">Selecting an entry opens the snippet and scrolls to it.</p>
+      </aside>
+
+      <div class="main-col">
+        {% for sec in sections %}
+        <details class="section" id="sec-{{ loop.index }}"{% if loop.first %} open{% endif %}>
+          <summary>
+            <span class="lang-ru">{{ sec.title_ru }}</span>
+            <span class="lang-en">{{ sec.title_en }}</span>
+          </summary>
+          <div class="section-body">
+            <p class="sub lang-ru" style="margin-top:0;font-size:0.85rem;">{{ sec.hint_ru }}</p>
+            <p class="sub lang-en" style="margin-top:0;font-size:0.85rem;">{{ sec.hint_en }}</p>
+            {% for item in sec['items'] %}
+            <details class="demo" id="{{ item.id }}">
+              <summary>
+                <span>
+                  <span class="lang-ru">{{ item.title_ru }}</span>
+                  <span class="lang-en">{{ item.title_en }}</span>
+                  <span class="lang-badge">{{ item.lang }}</span>
+                </span>
+                <span class="fname">{{ item.file }}</span>
+              </summary>
+              <div class="code-toolbar">
+                <button type="button" class="copy-btn lang-ru" data-target="code-{{ item.id }}">Копировать</button>
+                <button type="button" class="copy-btn lang-en" data-target="code-{{ item.id }}">Copy</button>
+              </div>
+              <pre class="code" id="wrap-{{ item.id }}"><code id="code-{{ item.id }}">{{ item.source | e }}</code></pre>
+            </details>
+            {% endfor %}
+          </div>
+        </details>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var KEY = 'em_demos_lang';
+      function apply(lang) {
+        document.documentElement.setAttribute('data-demos-lang', lang);
+        document.getElementById('btn-ru').setAttribute('aria-pressed', lang === 'ru' ? 'true' : 'false');
+        document.getElementById('btn-en').setAttribute('aria-pressed', lang === 'en' ? 'true' : 'false');
+        try { localStorage.setItem(KEY, lang); } catch (e) {}
+        var ph = document.querySelector('#demo-picker option[value=""]');
+        if (ph) {
+          ph.textContent = lang === 'en'
+            ? (ph.getAttribute('data-placeholder-en') || ph.textContent)
+            : (ph.getAttribute('data-placeholder-ru') || ph.textContent);
+        }
+        document.querySelectorAll('#demo-picker optgroup[data-label-ru]').forEach(function (og) {
+          og.label = lang === 'en'
+            ? og.getAttribute('data-label-en')
+            : og.getAttribute('data-label-ru');
+        });
+        document.querySelectorAll('#demo-picker option').forEach(function (opt) {
+          if (!opt.value) return;
+          opt.textContent = lang === 'en'
+            ? opt.getAttribute('data-label-en')
+            : opt.getAttribute('data-label-ru');
+        });
+      }
+      var saved = (function () { try { return localStorage.getItem(KEY); } catch (e) { return null; } })();
+      if (saved === 'en' || saved === 'ru') apply(saved);
+      document.getElementById('btn-ru').onclick = function () { apply('ru'); };
+      document.getElementById('btn-en').onclick = function () { apply('en'); };
+
+      var picker = document.getElementById('demo-picker');
+      picker.addEventListener('change', function () {
+        var id = this.value;
+        if (!id) return;
+        var det = document.getElementById(id);
+        if (!det) return;
+        var sec = det.closest('details.section');
+        if (sec) sec.open = true;
+        det.open = true;
+        det.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+
+      document.querySelectorAll('.copy-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var tid = btn.getAttribute('data-target');
+          var el = document.getElementById(tid);
+          if (!el) return;
+          var text = el.textContent || '';
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () {
+              var o = btn.textContent;
+              btn.textContent = document.documentElement.getAttribute('data-demos-lang') === 'en' ? 'Copied' : 'Скопировано';
+              setTimeout(function () { btn.textContent = o; }, 1500);
+            });
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

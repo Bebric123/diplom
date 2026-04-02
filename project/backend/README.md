@@ -20,7 +20,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Переменные окружения: см. использование в `src/core/config.py` и шаблон `project/docker/.env`. Минимум для локального запуска без Docker — строка подключения к PostgreSQL и при необходимости `REDIS_URL`, `TELEGRAM_BOT_TOKEN`, `COLLECTOR_REQUIRE_API_KEY`, `API_KEY_PEPPER`.
+Переменные окружения: см. `src/core/config.py` и шаблон `project/docker/.env.example`.
 
 ## Миграции
 
@@ -36,11 +36,9 @@ cd project/backend
 uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Страницы: `/` — лендинг, `/register` — создание проекта, `/docs/sdk` — инструкции по SDK, `/docs` — Swagger.
+Страницы: `/` — лендинг, `/register` — проект, `/docs/sdk` — инструкции SDK, **`/docs/demos`** — полные тексты демо из `examples/sdk-demos`, `/docs` — Swagger.
 
 ## Celery и бот
-
-В отдельных терминалах (из `project/backend`, с тем же `.env` / переменными):
 
 ```bash
 celery -A src.workers.celery_app.celery_app worker --loglevel=info
@@ -48,39 +46,33 @@ celery -A src.workers.celery_app.celery_app beat --loglevel=info
 python -m src.services.telegram_bot
 ```
 
-## Анализ ошибок для Telegram (только локальный GGUF)
+**Beat** по расписанию: еженедельный отчёт (понедельник 08:00 UTC), ежедневная очистка старых данных (03:20 UTC).
 
-Переменные окружения:
+## Анализ ошибок для Telegram (Open WebUI)
+
+Коллектор, воркер и бот шлют **POST** на OpenAI-совместимый API (часто `/api/chat/completions` у Open WebUI). Модель задаётся в интерфейсе Open WebUI (например Ollama на том же ПК).
 
 | Переменная | Значение |
 |------------|----------|
-| `ERROR_ANALYSIS_BACKEND` | `local_gguf` (по умолчанию) или `none` (заглушка без ИИ) |
-| `LOCAL_LLM_GGUF_PATH` | **Обязательно** для ИИ: полный путь к файлу `.gguf` |
-| `LOCAL_LLM_N_CTX` | Контекст (по умолчанию 8192; меньше — быстрее инициализация KV, риск обрезки очень длинных логов) |
-| `LOCAL_LLM_MAX_TOKENS` | Лимит ответа (по умолчанию **384**; меньше — быстрее декодирование на CPU) |
-| `LOCAL_LLM_FAST_MODE` | `true` (по умолчанию): дополнительно ужимает `max_tokens` и потолок при JSON-грамматике; для тяжёлых промптов — `false` |
-| `LOCAL_LLM_REPEAT_PENALTY` | Штраф повторов (по умолчанию 1.18; помогает против зацикливания на слабых квантах) |
-| `LOCAL_LLM_JSON_GRAMMAR` | `true` (по умолчанию): ответ ограничен JSON-схемой (severity/criticality/recommendation) через llama.cpp grammar |
-| `LOCAL_LLM_N_THREADS` | Потоки CPU, `0` = авто |
-| `LOCAL_LLM_N_GPU_LAYERS` | Слои на GPU для llama.cpp (`0` = только CPU) |
+| `ERROR_ANALYSIS_BACKEND` | `open_webui` (по умолчанию) или `none` (без ИИ) |
+| `OPEN_WEBUI_BASE_URL` | Например `http://127.0.0.1:3000` или `http://host.docker.internal:3000` из compose |
+| `OPEN_WEBUI_MODEL` | Имя модели **как в Open WebUI** |
+| `OPEN_WEBUI_API_KEY` | Если включена авторизация API в Open WebUI |
+| `OPEN_WEBUI_CHAT_COMPLETIONS_PATH` | По умолчанию `/api/chat/completions` |
+| `OPEN_WEBUI_MAX_TOKENS` | По умолчанию **512** |
+| `OPEN_WEBUI_TIMEOUT_SEC` | По умолчанию **180** |
+| `OPEN_WEBUI_REQUEST_JSON_OBJECT` | При ошибках API попробуйте `false` |
 
-**Скорость:** 4B «Thinking» на **CPU** (`n_gpu_layers=0`) часто даёт **десятки секунд — несколько минут** на один запрос — это нормально. Быстрее: **`LOCAL_LLM_FAST_MODE=true`**, **GPU** (`LOCAL_LLM_N_GPU_LAYERS` > 0 при CUDA), **меньше `LOCAL_LLM_MAX_TOKENS`**, **не-Thinking** instruct-модель, **`CELERY_WORKER_CONCURRENCY=1`**, чтобы не грузить CPU несколькими копиями модели.
+## Хранение данных и автоочистка
 
-Если модель всё равно «залипает» в повторяющийся текст вместо JSON (типично для **IQ1** и части Thinking-сборок), код после неудачных попыток подставляет **эвристическую** классификацию по тексту ошибки; для стабильного JSON лучше взять квант **Q4_K_M** (или выше) и **instruct без thinking**.
+По умолчанию **Celery beat** раз в сутки удаляет записи старше `DATA_RETENTION_DAYS` и «осиротевшие» группы ошибок (без событий и без привязанных логов).
 
-### Качество анализа: какую GGUF взять
+| Переменная | Значение |
+|------------|----------|
+| `DATA_RETENTION_ENABLED` | `true` / `false` |
+| `DATA_RETENTION_DAYS` | По умолчанию **365** (ограничение в коде: от 30 до 1825 дней) |
 
-Слабые кванты (**IQ1**, **IQ2**) и модели **Thinking** часто дают формальные уровни («незначительно» / «не критично») и пустые рекомендации даже при JSON-грамматике — для диплома/продакшена лучше заменить файл `.gguf`.
-
-| Ориентир | Пример поиска на Hugging Face | Примечание |
-|----------|-------------------------------|------------|
-| **Хороший баланс** | `Qwen2.5-7B-Instruct-GGUF`, квант **Q4_K_M** или **Q5_K_M** | Заметно умнее 4B; на CPU дольше, на GPU — разумно |
-| **Легче по ресурсам** | `Qwen2.5-3B-Instruct-GGUF` или **Qwen3-4B** вариант **Instruct** (не Thinking), **Q4_K_M** | Не брать `IQ1_M` / `UD-IQ*` для осмысленного текста |
-| **Тяжелее и лучше** | `Qwen2.5-14B-Instruct-GGUF` **Q4_K_M** (или **Q5** при запасе VRAM) | Нужна видеокарта с достаточной памятью или терпение на CPU |
-
-Ориентир по памяти (очень грубо): **Q4_K_M** у 7B ≈ **4–5 ГБ** VRAM при полном оффлоаде слоёв; на CPU хватает RAM под размер файла + накладные расходы. Путь к новому файлу — снова в `LOCAL_LLM_GGUF_PATH` (том `./models` в Docker).
-
-Зависимость `llama-cpp-python` входит в `requirements/base.txt`. Репозитории `*-GGUF` на Hugging Face — файлы для llama.cpp; скачайте один квант (например Q4_K_M) и укажите путь в `LOCAL_LLM_GGUF_PATH` (том в Docker или путь на хосте).
+Удаляются: строки в `log_files` и `events` с `created_at` до порога; затем строки в `error_groups`, на которые больше нет ссылок из `events` и `log_files`.
 
 ## Тесты
 
@@ -89,9 +81,7 @@ cd project/backend
 pytest tests/ -q
 ```
 
-Часть интеграционных тестов пропускается без настроенной тестовой БД (`TEST_DATABASE_URL`).
-
 ## Поведение Telegram-бота
 
-- **`/stats`**, **`/report`** — только в чате, чей id совпадает с `projects.telegram_chat_id` (тот же чат, куда уходят алерты). Статистика и Excel фильтруются по `project_id` этого проекта.
-- **`/task`** с UUID — в группе доступна только задача того же проекта; в личке — поиск по всей базе (удобство отладки).
+- **`/stats`**, **`/report`** — в чате проекта (`projects.telegram_chat_id`).
+- **`/task`** с UUID — в группе только задачи того же проекта.

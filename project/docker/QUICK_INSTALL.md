@@ -7,7 +7,7 @@
 1. Откройте репозиторий → **Code** → **Download ZIP**.
 2. Распакуйте архив; внутри будет папка вроде `diplom-main`.
 3. Перейдите в `…/diplom-main/project/docker`, скопируйте `.env.example` в `.env`, заполните.
-4. Положите `.gguf` в `project/docker/models/` при необходимости.
+4. Настройте Open WebUI на хосте (или `ERROR_ANALYSIS_BACKEND=none`) и переменные `OPEN_WEBUI_*` в `.env`.
 5. Выполните: `docker compose up -d --build`.
 
 ## 2. Мелкий клон Git (только последний коммит)

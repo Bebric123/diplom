@@ -254,37 +254,35 @@ def _fallback(last_err: Exception | None) -> dict:
     }
 
 
-def _analyze_local_gguf(event: dict) -> dict:
-    from src.services import local_gguf_llm
+def _analyze_open_webui(event: dict) -> dict:
+    from src.services import open_webui_client
 
     s = get_settings()
-    path = (s.local_llm_gguf_path or "").strip()
-    if not path:
-        return _fallback(ValueError("LOCAL_LLM_GGUF_PATH не задан"))
+    base = (s.open_webui_base_url or "").strip().rstrip("/")
+    model = (s.open_webui_model or "").strip()
+    if not base:
+        return _fallback(ValueError("OPEN_WEBUI_BASE_URL не задан"))
+    if not model:
+        return _fallback(ValueError("OPEN_WEBUI_MODEL не задан (имя модели как в Open WebUI)"))
 
     user_text = _build_llm_user_text(event)
-    n_ctx = s.local_llm_n_ctx
-    max_tok = s.local_llm_max_tokens
-    grammar_cap = 256
-    if s.local_llm_fast_mode:
-        max_tok = min(max_tok, 256)
-        grammar_cap = 192
+    messages = [{"role": "user", "content": user_text}]
+    path = (s.open_webui_chat_completions_path or "/api/chat/completions").strip()
+    api_key = (s.open_webui_api_key or "").strip()
     last_err: Exception | None = None
     for attempt in range(2):
         raw = ""
         try:
-            raw = local_gguf_llm.generate_completion(
-                path,
-                user_text,
-                system_prompt=None,
-                n_ctx=n_ctx,
-                max_tokens=max_tok,
+            raw = open_webui_client.chat_completion(
+                base_url=base,
+                completions_path=path,
+                api_key=api_key,
+                model=model,
+                messages=messages,
+                max_tokens=s.open_webui_max_tokens,
                 temperature=0.05,
-                repeat_penalty=s.local_llm_repeat_penalty,
-                n_threads=s.local_llm_n_threads,
-                n_gpu_layers=s.local_llm_n_gpu_layers,
-                json_grammar=s.local_llm_json_grammar,
-                json_grammar_max_tokens=grammar_cap,
+                request_json_object=s.open_webui_request_json_object,
+                timeout_sec=s.open_webui_timeout_sec,
             )
             if _looks_meta_without_json(raw):
                 raise ValueError("Модель выдала рассуждения вместо JSON")
@@ -295,7 +293,7 @@ def _analyze_local_gguf(event: dict) -> dict:
             last_err = e
             preview = (raw[:500] + "…") if len(raw) > 500 else raw
             logger.warning(
-                "local_gguf attempt %s failed: %s | фрагмент ответа: %r",
+                "open_webui attempt %s failed: %s | фрагмент ответа: %r",
                 attempt + 1,
                 e,
                 preview or "(пусто)",
@@ -303,7 +301,7 @@ def _analyze_local_gguf(event: dict) -> dict:
             if attempt == 0:
                 time.sleep(0.3)
     h = _heuristic_classify(event)
-    logger.info("local_gguf: эвристика вместо ответа модели (последняя ошибка: %s)", last_err)
+    logger.info("open_webui: эвристика вместо ответа модели (последняя ошибка: %s)", last_err)
     return h
 
 
@@ -317,7 +315,9 @@ def _analyze_none(_event: dict) -> dict:
 
 def analyze_error(event: dict) -> dict:
     s = get_settings()
-    backend = (s.error_analysis_backend or "local_gguf").strip().lower()
+    backend = (s.error_analysis_backend or "open_webui").strip().lower()
     if backend in ("none", "off", "disabled"):
         return _analyze_none(event)
-    return _analyze_local_gguf(event)
+    if backend not in ("open_webui", "webui"):
+        logger.warning("Неизвестный ERROR_ANALYSIS_BACKEND=%r, используется open_webui", backend)
+    return _analyze_open_webui(event)

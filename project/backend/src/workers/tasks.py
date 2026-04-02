@@ -2,12 +2,13 @@ import hashlib
 import logging
 import traceback
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from celery import shared_task
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, joinedload
 
+from src.core.config import get_settings
 from src.core.database import SessionLocal
 from src.core.models import (
     CriticalityLevel,
@@ -16,6 +17,7 @@ from src.core.models import (
     EventContext,
     LogFile,
     Platform,
+    Project,
     SeverityLevel,
 )
 from src.services.classifier import analyze_error
@@ -167,6 +169,11 @@ def process_event(self, event_id: str):
 
         severity_str = normalize_severity(result.get("severity", "средняя"))
         criticality_str = normalize_criticality(result.get("criticality", "требует внимания"))
+        analysis_block = {
+            "severity": severity_str,
+            "criticality": criticality_str,
+            "recommendation": result.get("recommendation", ""),
+        }
 
         severity_id = SEVERITY_MAP.get(severity_str)
         criticality_id = CRITICALITY_MAP.get(criticality_str)
@@ -264,6 +271,14 @@ def process_event(self, event_id: str):
                         )
                         db.commit()
 
+                        proj_row = db.get(Project, event.project_id)
+                        project_name = proj_row.name if proj_row else "—"
+                        created_iso = (
+                            event.created_at.isoformat()
+                            if event.created_at
+                            else datetime.now(timezone.utc).isoformat()
+                        )
+
                         message_id = send_telegram_message_sync(
                             event={
                                 "title": title,
@@ -277,6 +292,11 @@ def process_event(self, event_id: str):
                                 "action": event.action,
                                 "context": context_data,
                                 "meta": event.metadata_ or {},
+                                "project_name": project_name,
+                                "event_id": str(event.id),
+                                "event_created_at": created_iso,
+                                "group_id": str(error_group.id),
+                                "analysis": analysis_block,
                             },
                             error_group_id=error_group.id,
                             task_id=error_task.id,
@@ -418,6 +438,14 @@ def process_log_file(self, log_id: str):
                     else:
                         payload = build_log_alert_event_dict(log_file, errors, warnings, log_id)
                         payload["group_occurrence_count"] = error_group.occurrence_count
+                        log_ai = analyze_error(payload)
+                        payload["analysis"] = {
+                            "severity": normalize_severity(log_ai.get("severity", "средняя")),
+                            "criticality": normalize_criticality(
+                                log_ai.get("criticality", "требует внимания")
+                            ),
+                            "recommendation": log_ai.get("recommendation", ""),
+                        }
                         meta = dict(payload.get("meta") or {})
                         ev = Event(
                             project_id=log_file.project_id,
@@ -431,6 +459,16 @@ def process_log_file(self, log_id: str):
                             db, ev.id, error_group.id, log_file.project_id
                         )
                         db.commit()
+
+                        proj_log = db.get(Project, log_file.project_id)
+                        payload["project_name"] = proj_log.name if proj_log else "—"
+                        payload["event_id"] = str(ev.id)
+                        payload["event_created_at"] = (
+                            ev.created_at.isoformat()
+                            if ev.created_at
+                            else datetime.now(timezone.utc).isoformat()
+                        )
+                        payload["group_id"] = str(error_group.id)
 
                         message_id = send_telegram_message_sync(
                             payload,
@@ -474,9 +512,60 @@ def process_log_file(self, log_id: str):
 
 
 @shared_task
+def purge_old_monitoring_data():
+    """Удаляет события и загруженные логи старше data_retention_days; затем группы без событий и логов."""
+    s = get_settings()
+    if not s.data_retention_enabled:
+        logger.info("purge_old_monitoring_data: disabled")
+        return {"ok": True, "skipped": True}
+
+    days = max(30, min(int(s.data_retention_days), 365 * 5))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    db = SessionLocal()
+    try:
+        n_logs = db.query(LogFile).filter(LogFile.created_at < cutoff).delete(
+            synchronize_session=False
+        )
+        n_events = db.query(Event).filter(Event.created_at < cutoff).delete(
+            synchronize_session=False
+        )
+        res = db.execute(
+            text(
+                """
+                DELETE FROM error_groups eg
+                WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.error_group_id = eg.id)
+                  AND NOT EXISTS (SELECT 1 FROM log_files lf WHERE lf.error_group_id = eg.id)
+                """
+            )
+        )
+        n_groups = res.rowcount or 0
+        db.commit()
+        logger.info(
+            "purge_old_monitoring_data: deleted logs=%s events=%s orphan_groups=%s (older than %s days)",
+            n_logs,
+            n_events,
+            n_groups,
+            days,
+        )
+        return {
+            "ok": True,
+            "days": days,
+            "deleted_logs": n_logs,
+            "deleted_events": n_events,
+            "deleted_orphan_groups": n_groups,
+        }
+    except Exception:
+        db.rollback()
+        logger.exception("purge_old_monitoring_data failed")
+        raise
+    finally:
+        db.close()
+
+
+@shared_task
 def send_weekly_stats_report():
     """Еженедельный отчёт: метрики + Excel в Telegram."""
-    from src.core.config import get_settings
     from src.services.stats_service import (
         aggregate_metrics,
         build_excel_report,

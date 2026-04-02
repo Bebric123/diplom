@@ -32,6 +32,10 @@ celery_app.conf.update(
             "task": "src.workers.tasks.send_weekly_stats_report",
             "schedule": crontab(day_of_week="mon", hour=8, minute=0),
         },
+        "purge-old-monitoring-data": {
+            "task": "src.workers.tasks.purge_old_monitoring_data",
+            "schedule": crontab(hour=3, minute=20),
+        },
     },
 )
 

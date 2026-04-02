@@ -3,31 +3,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Установка зависимостей ОС (cmake/g++ — сборка llama-cpp-python из sdist, если нет подходящего wheel)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    g++ \
-    cmake \
-    ninja-build \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Копируем зависимости
 COPY backend/requirements/base.txt /app/requirements.txt
 
-# llama-cpp-python: предпочитаем wheel; при скачивании sdist (~60 MB) дефолтный таймаут pip часто падает
-ENV PIP_DEFAULT_TIMEOUT=600
 RUN pip install --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir --prefer-binary --retries 15 --timeout 600 -r /app/requirements.txt
+    && pip install --no-cache-dir -r /app/requirements.txt
 
-# Копируем ВЕСЬ backend
 COPY backend/ /app/
 
-# ДОБАВЛЯЕМ /app в PYTHONPATH
 ENV PYTHONPATH=/app
 
-# Создаём папку для логов
 RUN mkdir -p /app/logs
 
-# Запуск
 CMD sleep 5 && uvicorn src.api.main:app --host 0.0.0.0 --port 8000

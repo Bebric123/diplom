@@ -152,6 +152,8 @@
       ·
       <a href="/register">Регистрация</a>
       ·
+      <a href="/docs/demos">Код демо</a>
+      ·
       <a href="/docs">OpenAPI</a>
     </span>
     <div class="lang-switch" role="group" aria-label="Язык">
@@ -176,6 +178,7 @@
           <li><a href="#browser">Браузер</a></li>
           <li><a href="#logs">Логи (файлы)</a></li>
           <li><a href="#errors">Поля ошибки в /track</a></li>
+          <li><a href="/docs/demos">Полный код демо →</a></li>
         </ul>
       </div>
       <div class="lang-en">
@@ -192,6 +195,7 @@
           <li><a href="#browser">Browser</a></li>
           <li><a href="#logs">Log files</a></li>
           <li><a href="#errors">Error fields in /track</a></li>
+          <li><a href="/docs/demos">Full demo sources →</a></li>
         </ul>
       </div>
     </aside>
@@ -204,6 +208,15 @@
       <div class="lang-en">
         <h1>SDK &amp; integration guide</h1>
         <p class="hint">Overview explains <code>/track</code> vs <code>/logs/upload</code>. Then install steps, per-language examples, raw HTTP. Replace <code>YOUR_COLLECTOR</code> with your collector URL.</p>
+      </div>
+
+      <div class="lang-ru" style="background:linear-gradient(135deg, rgba(79,70,229,0.08), rgba(14,165,233,0.06)); border:1px solid var(--border); border-radius:12px; padding:1rem 1.15rem; margin-bottom:1.75rem;">
+        <p style="margin:0 0 0.5rem; font-weight:600;">Полный код всех демо на сайте</p>
+        <p style="margin:0; font-size:0.92rem; color:#475569;">Отдельная панель <a href="/docs/demos" style="color:var(--accent); font-weight:600;">/docs/demos</a> — выпадающий список файлов, раскрывающиеся блоки по категориям (Python, Django, Node, PHP, React, Vue, браузер), кнопка «Копировать». Удобно смотреть примеры без клона репозитория.</p>
+      </div>
+      <div class="lang-en" style="background:linear-gradient(135deg, rgba(79,70,229,0.08), rgba(14,165,233,0.06)); border:1px solid var(--border); border-radius:12px; padding:1rem 1.15rem; margin-bottom:1.75rem;">
+        <p style="margin:0 0 0.5rem; font-weight:600;">Full demo sources in the UI</p>
+        <p style="margin:0; font-size:0.92rem; color:#475569;">Open <a href="/docs/demos" style="color:var(--accent); font-weight:600;">/docs/demos</a> — dropdown of every file, collapsible sections, copy button. Browse examples even without a local git clone.</p>
       </div>
 
       <section id="intro">
@@ -273,12 +286,14 @@ cd diplom</code></pre>
         <h2 class="lang-ru">Установка библиотек</h2>
         <h2 class="lang-en">Installing the SDKs</h2>
         <div class="lang-ru">
-          <p>После <a href="#github">клона</a> пакеты ставятся из каталогов <code>project/sdk-python</code>, <code>project/sdk-js</code>, <code>project/sdk-php</code> (или через pip с <code>git+…#subdirectory=…</code> выше).</p>
+          <p><strong>Коллектор уже запущен?</strong> Для демо укажите базовый URL (например <code>http://127.0.0.1:8000</code>) и ключи с <a href="/register">регистрации</a>. В примерах используются переменные окружения <code>MONITOR_URL</code>, <code>MONITOR_PROJECT_ID</code>, <code>MONITOR_API_KEY</code> — задайте их в shell или в <code>.env</code> фронтовых демо (см. <code>.env.example</code> в React/Vite и Vue/Vite).</p>
+          <p>После <a href="#github">клона</a> пакеты ставятся из <code>project/sdk-python</code>, <code>project/sdk-js</code>, <code>project/sdk-php</code> (или pip/git одной строкой ниже). Готовые тексты файлов — на странице <a href="/docs/demos">/docs/demos</a>.</p>
           <h3>Python</h3>
           <p>Имя пакета в pip: <code>error-monitor-sdk</code>, импорт в коде: <code>error_monitor_sdk</code>.</p>
         </div>
         <div class="lang-en">
-          <p>After <a href="#github">cloning</a>, install from <code>project/sdk-python</code>, <code>project/sdk-js</code>, <code>project/sdk-php</code> (or use the pip git URL above).</p>
+          <p><strong>Collector running?</strong> Set base URL (e.g. <code>http://127.0.0.1:8000</code>) and keys from <a href="/register">registration</a>. Demos use <code>MONITOR_URL</code>, <code>MONITOR_PROJECT_ID</code>, <code>MONITOR_API_KEY</code> (shell or Vite <code>.env</code> per demo).</p>
+          <p>After <a href="#github">cloning</a>, install from <code>project/sdk-python</code>, <code>project/sdk-js</code>, <code>project/sdk-php</code> (or pip/git below). Full file sources: <a href="/docs/demos">/docs/demos</a>.</p>
           <h3>Python</h3>
           <p>PyPI name: <code>error-monitor-sdk</code>, import: <code>error_monitor_sdk</code>.</p>
         </div>

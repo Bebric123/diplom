@@ -23,6 +23,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     depends_on:
@@ -32,9 +34,6 @@ services:
         condition: service_started
     env_file:
       - .env
-    volumes:
-      # GGUF-модель: положите файл в project/docker/models/ → в контейнере /models/
-      - ./models:/models:ro
     command: sh -c "alembic upgrade head && uvicorn src.api.main:app --host 0.0.0.0 --port 8000"
 
   worker:
@@ -50,9 +49,7 @@ services:
     env_file:
       - .env
     working_dir: /app
-    volumes:
-      - ./models:/models:ro
-    # По умолчанию concurrency=1: каждый процесс грузит GGUF в RAM — при N≈числу CPU легко OOM → SIGKILL (см. логи WorkerLostError).
+    # Concurrency>1 — несколько задач Celery параллельно (ИИ идёт в Open WebUI на хосте).
     command: sh -c "alembic upgrade head && celery -A src.workers.celery_app.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1}"
 
   beat:
@@ -74,14 +71,13 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redis
       - db
     env_file:
       - .env
-    volumes:
-      # Тот же том, что у backend/worker: обновление текста сообщения пересчитывает analyze_error (LLM)
-      - ./models:/models:ro
     command: sh -c "alembic upgrade head && python -m src.services.telegram_bot"
     restart: on-failure
 

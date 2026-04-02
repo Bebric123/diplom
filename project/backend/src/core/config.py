@@ -13,22 +13,19 @@ class Settings(BaseSettings):
     postgres_password: str = "postgres"
     postgres_db: str = "Monitoring"
 
-    # Анализ ошибок в Telegram: local_gguf (локальный GGUF) | none (заглушка без ИИ)
-    error_analysis_backend: str = "local_gguf"
-    # Путь к .gguf: задавайте в .env (LOCAL_LLM_GGUF_PATH). В Docker — путь внутри контейнера (том).
-    # На Windows в .env используйте прямые слэши: C:/Users/.../model.gguf — иначе \U в путях ломает разбор.
-    local_llm_gguf_path: str = ""
-    local_llm_n_ctx: int = 8192
-    # Короткий ответ = меньше токенов на CPU/GPU; с JSON-грамматикой хватает сотен
-    local_llm_max_tokens: int = 384
-    local_llm_n_threads: int = 0
-    local_llm_n_gpu_layers: int = 0
-    # Снижает зацикливание на слабых квантах (IQ1 и т.п.); типично 1.1–1.25
-    local_llm_repeat_penalty: float = 1.18
-    # Ограничить вывод схемой JSON (llama.cpp grammar); сильно помогает против «простыней» вместо JSON
-    local_llm_json_grammar: bool = True
-    # Ещё сильнее ужимает max_tokens и лимит при грамматике (скорость на CPU); для очень длинных логов — false
-    local_llm_fast_mode: bool = True
+    # Анализ ошибок: open_webui (HTTP к Open WebUI) | none
+    error_analysis_backend: str = "open_webui"
+    open_webui_base_url: str = "http://host.docker.internal:3000"
+    open_webui_chat_completions_path: str = "/api/chat/completions"
+    open_webui_api_key: str = ""
+    open_webui_model: str = ""
+    open_webui_timeout_sec: float = 180.0
+    open_webui_max_tokens: int = 512
+    open_webui_request_json_object: bool = True
+
+    # Хранение: ежедневная очистка событий и логов старше N дней (и «осиротевших» групп ошибок)
+    data_retention_enabled: bool = True
+    data_retention_days: int = 365
 
     # Telegram (токен бота обязателен; chat_id — опционально: для еженедельных отчётов в «общий» чат)
     telegram_bot_token: str
