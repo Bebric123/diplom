@@ -69,4 +69,5 @@ def chat_completion(
         text = str(choices[0]["text"]).strip()
     if not text:
         raise ValueError("Open WebUI: нет текста в ответе")
+    print("Я работаююююююююю!!!!!!!!!!!!!!!!!!!")
     return text

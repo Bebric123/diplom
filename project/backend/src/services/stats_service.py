@@ -63,7 +63,11 @@ def aggregate_metrics(
 
     events_with_errors = ev_base.count()
 
-    dom_col = func.coalesce(EventUrl.domain, "(нет домена)")
+    # Пустой домен из URL — в одну корзину, чтобы не было «пустых» строк в отчётах
+    dom_col = func.coalesce(
+        func.nullif(func.trim(EventUrl.domain), ""),
+        "(нет домена)",
+    )
     domain_rows = (
         db.query(dom_col, func.count(Event.id))
         .select_from(Event)
@@ -78,8 +82,9 @@ def aggregate_metrics(
     )
     top_domains = [{"domain": r[0], "count": int(r[1])} for r in domain_rows]
 
+    group_title = func.coalesce(ErrorGroup.title, "(без названия)")
     group_rows = (
-        db.query(ErrorGroup.title, func.count(Event.id).label("cnt"))
+        db.query(group_title, func.count(Event.id).label("cnt"))
         .join(Event, Event.error_group_id == ErrorGroup.id)
         .filter(
             Event.error_group_id.isnot(None),
@@ -89,7 +94,7 @@ def aggregate_metrics(
     )
     if project_id:
         group_rows = group_rows.filter(Event.project_id == project_id)
-    group_rows = group_rows.group_by(ErrorGroup.title).order_by(func.count(Event.id).desc()).limit(20).all()
+    group_rows = group_rows.group_by(group_title).order_by(func.count(Event.id).desc()).limit(20).all()
     top_groups = [{"title": r[0], "count": int(r.cnt)} for r in group_rows]
 
     task_q = db.query(ErrorTask).filter(
@@ -202,11 +207,17 @@ def build_excel_report(
     ws0.append(["Задач создано (ErrorTask)", data["tasks_created"]])
     ws0.append(["Задач решено", data["tasks_resolved"]])
     rts = data["resolution_time_seconds"]
+
+    def _fmt_sec_cell(v: Any) -> Any:
+        if v is None:
+            return "— (нет решённых задач за период)"
+        return round(float(v), 1) if isinstance(v, float) else v
+
     ws0.append([])
     ws0.append(["Время решения (сек)", ""])
-    ws0.append(["min", rts["min"]])
-    ws0.append(["max", rts["max"]])
-    ws0.append(["avg", rts["avg"]])
+    ws0.append(["min", _fmt_sec_cell(rts["min"])])
+    ws0.append(["max", _fmt_sec_cell(rts["max"])])
+    ws0.append(["avg", _fmt_sec_cell(rts["avg"])])
     for row in ws0.iter_rows(min_row=1, max_row=1):
         for c in row:
             c.font = bold
@@ -218,28 +229,40 @@ def build_excel_report(
     ws1.append(["Домен", "Событий"])
     ws1["A1"].font = bold
     ws1["B1"].font = bold
-    for row in data["top_domains"]:
-        ws1.append([row["domain"], row["count"]])
+    if data["top_domains"]:
+        for row in data["top_domains"]:
+            ws1.append([row["domain"], row["count"]])
+    else:
+        ws1.append(["(нет событий с ошибкой и доменом за период)", "—"])
 
     ws2 = wb.create_sheet("Группы ошибок")
     ws2.append(["Группа (title)", "Событий"])
     ws2["A1"].font = bold
     ws2["B1"].font = bold
-    for row in data["top_error_groups"]:
-        ws2.append([row["title"], row["count"]])
+    if data["top_error_groups"]:
+        for row in data["top_error_groups"]:
+            ws2.append([row["title"], row["count"]])
+    else:
+        ws2.append(["(нет событий, привязанных к группе за период)", "—"])
 
     ws3 = wb.create_sheet("Исполнители")
     ws3.append(["Кто брал в работу", "Задач"])
     ws3["A1"].font = bold
     ws3["B1"].font = bold
-    for row in data["top_who_took_task"]:
-        ws3.append([row["label"], row["count"]])
+    if data["top_who_took_task"]:
+        for row in data["top_who_took_task"]:
+            ws3.append([row["label"], row["count"]])
+    else:
+        ws3.append(["(нет действий за период)", "—"])
     ws3.append([])
     ws3.append(["Кто закрыл", "Задач"])
     ws3.cell(row=ws3.max_row, column=1).font = bold
     ws3.cell(row=ws3.max_row, column=2).font = bold
-    for row in data["top_who_resolved"]:
-        ws3.append([row["label"], row["count"]])
+    if data["top_who_resolved"]:
+        for row in data["top_who_resolved"]:
+            ws3.append([row["label"], row["count"]])
+    else:
+        ws3.append(["(нет закрытий за период)", "—"])
 
     buf = io.BytesIO()
     wb.save(buf)

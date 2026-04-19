@@ -8,8 +8,8 @@ const { initMonitor } = require('error-monitor-sdk');
 const { enableExpressIntegration } = require('error-monitor-sdk/integrations/express');
 
 const endpoint = process.env.MONITOR_URL || 'http://127.0.0.1:8000';
-const projectId = process.env.MONITOR_PROJECT_ID || '00000000-0000-4000-8000-000000000001';
-const apiKey = process.env.MONITOR_API_KEY;
+const projectId = process.env.MONITOR_PROJECT_ID || 'edb9ac0b-c0a5-45ee-829d-91ed250d4cd3';
+const apiKey = "pLD-lQWqPiPQfIvDUNLNE_2ohTCgfIjzDPUSZHPLrLY";
 
 initMonitor({
   endpoint,

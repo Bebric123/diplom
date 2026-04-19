@@ -99,6 +99,8 @@
       <span style="color:var(--border)">|</span>
       <a href="/docs/sdk">Инструкции SDK</a>
       <span style="color:var(--border)">|</span>
+      <a href="/docs/telegram">Бот и чат</a>
+      <span style="color:var(--border)">|</span>
       <a href="/docs/demos">Код демо</a>
       <span style="color:var(--border)">|</span>
       <a href="/docs">OpenAPI</a>
@@ -117,7 +119,7 @@
 
       <label for="telegram_chat_id">Telegram chat id</label>
       <input type="text" id="telegram_chat_id" name="telegram_chat_id" required placeholder="-1001234567890" inputmode="numeric" />
-      <p class="hint">Как узнать id группы: добавьте бота в группу, напишите любое сообщение, откройте <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> и найдите <code>chat.id</code> (часто <code>-100…</code> для супергрупп). Токен в <code>.env</code> должен быть от <strong>того же</strong> бота.</p>
+      <p class="hint">Пошагово: <a href="/docs/telegram">/docs/telegram</a> — создание бота, группа, chat id. Кратко: добавьте бота в группу, напишите сообщение, откройте <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> и найдите <code>chat.id</code> (часто <code>-100…</code>). Токен в <code>.env</code> — от <strong>того же</strong> бота.</p>
 
       <label>Стек (можно несколько)</label>
       <div class="grid">

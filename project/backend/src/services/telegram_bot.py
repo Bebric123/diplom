@@ -3,10 +3,15 @@ import os
 import uuid
 from datetime import datetime, timezone
 
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.filters import Command
-from aiogram.types import BufferedInputFile
+from aiogram.types import (
+    BotCommand,
+    BufferedInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from sqlalchemy import func
 
 from src.core.database import SessionLocal
@@ -21,6 +26,41 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
+
+HELP_HTML = (
+    "<b>Команды бота</b>\n\n"
+    "/start — приветствие и кнопки\n"
+    "/help — эта справка\n"
+    "/stats — сводка по проекту (только в чате, указанном при /register)\n"
+    "/report — Excel за 7 дней (там же)\n"
+    "/task &lt;uuid&gt; — карточка задачи\n\n"
+    "Под сообщениями об ошибках — кнопки «Взять в работу» / «Решена»."
+)
+
+
+def main_menu_keyboard() -> InlineKeyboardMarkup:
+    """Кнопки-ярлыки (работают в чате проекта; в личке /stats и /report всё равно без проекта)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📊 Статистика", callback_data="menu_stats"),
+                InlineKeyboardButton(text="📎 Отчёт Excel", callback_data="menu_report"),
+            ],
+            [InlineKeyboardButton(text="❓ Справка", callback_data="menu_help")],
+        ]
+    )
+
+
+async def setup_bot_commands(bot: Bot) -> None:
+    """Меню команд (подсказка в Telegram рядом со скрепкой)."""
+    commands = [
+        BotCommand(command="start", description="Начало и кнопки"),
+        BotCommand(command="help", description="Справка по командам"),
+        BotCommand(command="stats", description="Сводка по проекту (в чате проекта)"),
+        BotCommand(command="report", description="Excel за 7 дней"),
+        BotCommand(command="task", description="Задача по UUID"),
+    ]
+    await bot.set_my_commands(commands)
 
 
 def _telegram_user_label(user: types.User) -> str:
@@ -190,6 +230,125 @@ async def process_callback(callback_query: types.CallbackQuery):
     finally:
         db.close()
 
+
+def _format_project_stats_lines(db, proj) -> list[str]:
+    """Текст сводки /stats для проекта (общая логика с командой и callback)."""
+    pid = proj.id
+    base_task = db.query(ErrorTask).filter(ErrorTask.project_id == pid)
+    total = base_task.count()
+    resolved = base_task.filter(ErrorTask.is_resolved.is_(True)).count()
+    in_progress = base_task.filter(
+        ErrorTask.is_acknowledged.is_(True),
+        ErrorTask.is_resolved.is_(False),
+    ).count()
+    waiting = base_task.filter(
+        ErrorTask.is_acknowledged.is_(False),
+        ErrorTask.is_resolved.is_(False),
+    ).count()
+
+    sec = func.extract("epoch", ErrorTask.resolved_at - ErrorTask.created_at)
+    rmin, rmax, ravg = (
+        db.query(func.min(sec), func.max(sec), func.avg(sec))
+        .select_from(ErrorTask)
+        .filter(
+            ErrorTask.project_id == pid,
+            ErrorTask.is_resolved.is_(True),
+            ErrorTask.resolved_at.isnot(None),
+        )
+        .one()
+    )
+
+    def fmt_minutes(sec_val: float | None) -> str:
+        if sec_val is None:
+            return "—"
+        return f"{float(sec_val) / 60.0:.1f} мин"
+
+    start, end = default_range_days(7)
+    m = aggregate_metrics(db, start, end, pid)
+
+    lines = [
+        f"📊 <b>Статистика проекта</b> «{proj.name}»",
+        f"<code>{proj.id}</code>",
+        "",
+        "<b>Все время (задачи этого проекта)</b>",
+        f"📌 Всего: {total} | ✅ решено: {resolved} | 🔄 в работе: {in_progress} | ⏳ ждут: {waiting}",
+        f"⏱️ Время решения (все решённые): min {fmt_minutes(rmin)} | max {fmt_minutes(rmax)} | ср. {fmt_minutes(ravg)}",
+        "",
+        f"<b>За 7 дней</b> ({start.date()} — {end.date()})",
+        f"Событий с ошибкой: {m['events_with_errors']}",
+        f"Задач создано: {m['tasks_created']} | решено: {m['tasks_resolved']}",
+    ]
+    rts = m["resolution_time_seconds"]
+    if rts["avg"] is not None:
+        lines.append(
+            f"⏱️ Решение (задачи за период): min {fmt_minutes(rts['min'])} | max {fmt_minutes(rts['max'])} | ср. {fmt_minutes(rts['avg'])}"
+        )
+    else:
+        lines.append("⏱️ Решение (задачи за период): нет решённых задач в выбранные 7 дней")
+    if m["top_domains"][:3]:
+        doms = ", ".join(f"{d['domain']}: {d['count']}" for d in m["top_domains"][:3])
+        lines.append(f"🌍 Чаще по доменам: {doms}")
+    if m["top_who_took_task"][:3]:
+        took = ", ".join(f"{x['label']}: {x['count']}" for x in m["top_who_took_task"][:3])
+        lines.append(f"👷 Больше брали в работу: {took}")
+    if m["top_who_resolved"][:3]:
+        rs = ", ".join(f"{x['label']}: {x['count']}" for x in m["top_who_resolved"][:3])
+        lines.append(f"✅ Больше закрыли: {rs}")
+    return lines
+
+
+@dp.callback_query(F.data.in_({"menu_stats", "menu_report", "menu_help"}))
+async def menu_callback(callback_query: types.CallbackQuery):
+    """Кнопки подсказок: статистика, отчёт, справка."""
+    data = callback_query.data or ""
+    chat = callback_query.message.chat if callback_query.message else None
+
+    if data == "menu_help":
+        await _safe_callback_answer(callback_query, "Открыта справка")
+        if callback_query.message:
+            await callback_query.message.answer(HELP_HTML, parse_mode="HTML", reply_markup=main_menu_keyboard())
+        return
+
+    if not chat:
+        await _safe_callback_answer(callback_query, "Нет чата")
+        return
+
+    db = SessionLocal()
+    try:
+        proj = project_for_telegram_chat(db, chat.id)
+        if not proj:
+            await _safe_callback_answer(
+                callback_query,
+                "Сначала привяжите чат к проекту на коллекторе (/register)",
+                show_alert=True,
+            )
+            return
+
+        if data == "menu_stats":
+            lines = _format_project_stats_lines(db, proj)
+            await _safe_callback_answer(callback_query, "Сводка ниже")
+            await callback_query.message.answer("\n".join(lines), parse_mode="HTML")
+            return
+
+        if data == "menu_report":
+            await _safe_callback_answer(callback_query, "Формирую файл…")
+            start, end = default_range_days(7)
+            label = f"{proj.name} ({proj.id})"
+            blob = build_excel_report(db, start, end, proj.id, project_label=label)
+            cap = f"«{proj.name}» — {start.date()} — {end.date()}"
+            safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in proj.name)[:40]
+            fname = f"report_{safe_name}_{start.date()}_{end.date()}.xlsx"
+            await callback_query.message.answer_document(
+                BufferedInputFile(blob, filename=fname),
+                caption=cap,
+            )
+    except Exception as e:
+        logger.error("menu_callback: %s", e, exc_info=True)
+        await _safe_callback_answer(callback_query, "Ошибка при выполнении", show_alert=True)
+    finally:
+        db.close()
+
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     """Приветственное сообщение"""
@@ -203,9 +362,16 @@ async def cmd_start(message: types.Message):
         "Нажми на кнопку под сообщением об ошибке, чтобы начать работу или отметить задачу как решённую.\n\n"
         "Команды в <b>чате проекта</b> (туда же, куда приходят алерты): /stats — сводка по этому проекту, /report — Excel за 7 дней.\n\n"
         "В личных сообщениях боту статистика недоступна — неизвестно, какой проект считать.\n\n"
-        "Алерты уходят в Telegram-чат, указанный при регистрации на коллекторе (<code>/register</code>).",
-        parse_mode="HTML"
+        "Алерты уходят в Telegram-чат, указанный при регистрации на коллекторе (<code>/register</code>).\n\n"
+        "<b>Кнопки ниже</b> — быстрый доступ (в чате проекта). Список команд также в меню Telegram (кнопка «Menu»).",
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard(),
     )
+
+
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
+    await message.answer(HELP_HTML, parse_mode="HTML", reply_markup=main_menu_keyboard())
 
 @dp.message(Command("task"))
 async def cmd_task(message: types.Message):
@@ -294,66 +460,7 @@ async def cmd_stats(message: types.Message):
             )
             return
 
-        pid = proj.id
-        base_task = db.query(ErrorTask).filter(ErrorTask.project_id == pid)
-        total = base_task.count()
-        resolved = base_task.filter(ErrorTask.is_resolved.is_(True)).count()
-        in_progress = base_task.filter(
-            ErrorTask.is_acknowledged.is_(True),
-            ErrorTask.is_resolved.is_(False),
-        ).count()
-        waiting = base_task.filter(
-            ErrorTask.is_acknowledged.is_(False),
-            ErrorTask.is_resolved.is_(False),
-        ).count()
-
-        sec = func.extract("epoch", ErrorTask.resolved_at - ErrorTask.created_at)
-        rmin, rmax, ravg = (
-            db.query(func.min(sec), func.max(sec), func.avg(sec))
-            .select_from(ErrorTask)
-            .filter(
-                ErrorTask.project_id == pid,
-                ErrorTask.is_resolved.is_(True),
-                ErrorTask.resolved_at.isnot(None),
-            )
-            .one()
-        )
-
-        def fmt_minutes(sec_val: float | None) -> str:
-            if sec_val is None:
-                return "—"
-            return f"{float(sec_val) / 60.0:.1f} мин"
-
-        start, end = default_range_days(7)
-        m = aggregate_metrics(db, start, end, pid)
-
-        lines = [
-            f"📊 <b>Статистика проекта</b> «{proj.name}»",
-            f"<code>{proj.id}</code>",
-            "",
-            "<b>Все время (задачи этого проекта)</b>",
-            f"📌 Всего: {total} | ✅ решено: {resolved} | 🔄 в работе: {in_progress} | ⏳ ждут: {waiting}",
-            f"⏱️ Время решения (все решённые): min {fmt_minutes(rmin)} | max {fmt_minutes(rmax)} | ср. {fmt_minutes(ravg)}",
-            "",
-            f"<b>За 7 дней</b> ({start.date()} — {end.date()})",
-            f"Событий с ошибкой: {m['events_with_errors']}",
-            f"Задач создано: {m['tasks_created']} | решено: {m['tasks_resolved']}",
-        ]
-        rts = m["resolution_time_seconds"]
-        if rts["avg"] is not None:
-            lines.append(
-                f"⏱️ Решение (задачи за период): min {fmt_minutes(rts['min'])} | max {fmt_minutes(rts['max'])} | ср. {fmt_minutes(rts['avg'])}"
-            )
-        if m["top_domains"][:3]:
-            doms = ", ".join(f"{d['domain']}: {d['count']}" for d in m["top_domains"][:3])
-            lines.append(f"🌍 Чаще по доменам: {doms}")
-        if m["top_who_took_task"][:3]:
-            took = ", ".join(f"{x['label']}: {x['count']}" for x in m["top_who_took_task"][:3])
-            lines.append(f"👷 Больше брали в работу: {took}")
-        if m["top_who_resolved"][:3]:
-            rs = ", ".join(f"{x['label']}: {x['count']}" for x in m["top_who_resolved"][:3])
-            lines.append(f"✅ Больше закрыли: {rs}")
-
+        lines = _format_project_stats_lines(db, proj)
         await message.answer("\n".join(lines), parse_mode="HTML")
     finally:
         db.close()
@@ -362,13 +469,13 @@ async def cmd_stats(message: types.Message):
 @dp.message(Command("report"))
 async def cmd_report(message: types.Message):
     """Excel-отчёт за последние 7 дней только по проекту этого чата."""
+    chat = message.chat
+    if not chat:
+        await message.answer("Не удалось определить чат.")
+        return
+
     db = SessionLocal()
     try:
-        chat = message.chat
-        if not chat:
-            await message.answer("Не удалось определить чат.")
-            return
-
         proj = project_for_telegram_chat(db, chat.id)
         if not proj:
             await message.answer(
@@ -380,22 +487,27 @@ async def cmd_report(message: types.Message):
 
         start, end = default_range_days(7)
         label = f"{proj.name} ({proj.id})"
-        blob = build_excel_report(
-            db, start, end, proj.id, project_label=label
+        blob = build_excel_report(db, start, end, proj.id, project_label=label)
+        cap = f"«{proj.name}» — {start.date()} — {end.date()}"
+        safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in proj.name)[:40]
+        fname = f"report_{safe_name}_{start.date()}_{end.date()}.xlsx"
+        await message.answer_document(
+            BufferedInputFile(blob, filename=fname),
+            caption=cap,
         )
+    except Exception as e:
+        logger.error("cmd_report: %s", e, exc_info=True)
+        await message.answer("Не удалось сформировать отчёт. Проверьте логи коллектора.")
     finally:
         db.close()
-    cap = f"«{proj.name}» — {start.date()} — {end.date()}"
-    safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in proj.name)[:40]
-    fname = f"report_{safe_name}_{start.date()}_{end.date()}.xlsx"
-    await message.answer_document(
-        BufferedInputFile(blob, filename=fname),
-        caption=cap,
-    )
 
 async def main():
     """Запуск бота"""
     logger.info("🚀 Telegram bot started")
+    try:
+        await setup_bot_commands(bot)
+    except Exception as e:
+        logger.warning("Не удалось зарегистрировать команды меню Telegram: %s", e)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

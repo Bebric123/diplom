@@ -65,6 +65,12 @@ def sdk_guide(request: Request):
     return templates.TemplateResponse("sdk_guide.html", {"request": request})
 
 
+@router.get("/docs/telegram", response_class=HTMLResponse)
+def telegram_guide(request: Request):
+    """Как создать бота, добавить в чат, узнать chat id и связать с проектом."""
+    return templates.TemplateResponse("telegram_guide.html", {"request": request})
+
+
 @router.get("/register", response_class=HTMLResponse)
 def register_form(request: Request):
     return templates.TemplateResponse(

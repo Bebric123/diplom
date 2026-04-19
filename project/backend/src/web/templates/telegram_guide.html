@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ru" data-tg-lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Telegram: бот и чат — Error Monitor</title>
+  <style>
+    :root {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      line-height: 1.55;
+      color: #1e293b;
+      --accent: #4f46e5;
+      --border: #e2e8f0;
+      --muted: #64748b;
+      --code-bg: #f1f5f9;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #f8fafc; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;
+      padding: 0.85rem 1.35rem; border-bottom: 1px solid var(--border); background: #fff;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .topbar a { color: var(--accent); text-decoration: none; }
+    .topbar a:hover { text-decoration: underline; }
+    .lang-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .lang-switch button {
+      border: none; background: transparent; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.9rem;
+    }
+    .lang-switch button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+    main { max-width: 46rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+    h1 { font-size: 1.45rem; margin: 0 0 0.35rem; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); margin: 0 0 1.25rem; font-size: 0.95rem; }
+    section {
+      background: #fff; border: 1px solid var(--border); border-radius: 12px;
+      padding: 1.1rem 1.2rem; margin-bottom: 1rem;
+    }
+    section h2 { font-size: 1.05rem; margin: 0 0 0.65rem; color: #0f172a; }
+    ol, ul { margin: 0.4rem 0 0; padding-left: 1.25rem; }
+    li { margin: 0.35rem 0; }
+    code { background: var(--code-bg); padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.88em; }
+    pre {
+      background: #0f172a; color: #e2e8f0; padding: 0.85rem 1rem; border-radius: 10px;
+      overflow-x: auto; font-size: 0.82rem; line-height: 1.45;
+    }
+    .note { font-size: 0.88rem; color: var(--muted); margin-top: 0.75rem; }
+    html[data-tg-lang="ru"] .lang-en { display: none !important; }
+    html[data-tg-lang="en"] .lang-ru { display: none !important; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <span>
+      <a href="/">Error Monitor</a>
+      · <a href="/register">Регистрация</a>
+      · <a href="/docs/sdk">SDK</a>
+      · <a href="/docs/demos">Демо</a>
+      · <a href="/docs">OpenAPI</a>
+    </span>
+    <div class="lang-switch" role="group" aria-label="Язык">
+      <button type="button" id="btn-ru" aria-pressed="true">RU</button>
+      <button type="button" id="btn-en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <main>
+    <h1 class="lang-ru">Подключение бота к чату</h1>
+    <h1 class="lang-en">Connect the bot to a chat</h1>
+    <p class="sub lang-ru">Коллектор шлёт алерты в Telegram тем же ботом, чей токен указан в <code>TELEGRAM_BOT_TOKEN</code>. Чат, куда слать сообщения, задаётся при <a href="/register">регистрации проекта</a> (поле <strong>Telegram chat id</strong>).</p>
+    <p class="sub lang-en">The collector sends alerts with the bot from <code>TELEGRAM_BOT_TOKEN</code>. The destination chat is set at <a href="/register">project registration</a> (<strong>Telegram chat id</strong>).</p>
+
+    <section>
+      <h2 class="lang-ru">1. Токен бота (BotFather)</h2>
+      <h2 class="lang-en">1. Bot token (BotFather)</h2>
+      <ol class="lang-ru">
+        <li>В Telegram откройте <a href="https://t.me/BotFather" rel="noopener noreferrer">@BotFather</a> → <code>/newbot</code> → имя и username.</li>
+        <li>Скопируйте токен вида <code>123456:ABC…</code> в переменную <code>TELEGRAM_BOT_TOKEN</code> в <code>.env</code> на сервере (Docker: <code>project/docker/.env</code>).</li>
+        <li>Перезапустите сервис <code>bot</code> (и при необходимости <code>backend</code>/<code>worker</code>), чтобы подтянуть конфиг.</li>
+      </ol>
+      <ol class="lang-en">
+        <li>Open <a href="https://t.me/BotFather" rel="noopener noreferrer">@BotFather</a> → <code>/newbot</code>.</li>
+        <li>Copy the token into <code>TELEGRAM_BOT_TOKEN</code> in your server <code>.env</code> (e.g. <code>project/docker/.env</code>).</li>
+        <li>Restart the <code>bot</code> container (and stack if needed).</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 class="lang-ru">2. Группа или супергруппа для алертов</h2>
+      <h2 class="lang-en">2. Group or supergroup for alerts</h2>
+      <ol class="lang-ru">
+        <li>Создайте группу в Telegram (лучше <strong>супергруппа</strong> — так проще с большими чатами).</li>
+        <li>Добавьте в группу <strong>вашего</strong> бота (по username из BotFather).</li>
+        <li>При желании сделайте бота <strong>администратором</strong> — так надёжнее доставляются длинные сообщения и вложения.</li>
+      </ol>
+      <ol class="lang-en">
+        <li>Create a Telegram group (a <strong>supergroup</strong> is fine).</li>
+        <li>Add <strong>your</strong> bot to the group.</li>
+        <li>Optionally promote the bot to <strong>admin</strong> for more reliable delivery of long messages.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 class="lang-ru">3. Узнать chat id</h2>
+      <h2 class="lang-en">3. Get the chat id</h2>
+      <p class="lang-ru">Нужно число вида <code>-1001234567890</code> (супергруппа) или <code>-123456789</code> (группа). Варианты:</p>
+      <p class="lang-en">You need a numeric id like <code>-1001234567890</code> (supergroup). Options:</p>
+      <ul class="lang-ru">
+        <li>Напишите в группе любое сообщение и откройте в браузере<br />
+          <code>https://api.telegram.org/bot&lt;ВАШ_ТОКЕН&gt;/getUpdates</code><br />
+          найдите <code>"chat":{"id": …</code> — это и есть <strong>chat id</strong>.</li>
+        <li>Либо используйте ботов-помощников (например, добавьте в группу бота, который показывает id чата) — по правилам вашей организации.</li>
+      </ul>
+      <ul class="lang-en">
+        <li>Post any message in the group, then open<br />
+          <code>https://api.telegram.org/bot&lt;YOUR_TOKEN&gt;/getUpdates</code><br />
+          and read <code>"chat":{"id": …</code>.</li>
+        <li>Or use a helper bot allowed by your policy.</li>
+      </ul>
+      <p class="note lang-ru">Токен в URL — секрет: не пересылайте ссылку третьим лицам и не коммитьте в git.</p>
+      <p class="note lang-en">The token in the URL is a secret — do not share or commit it.</p>
+    </section>
+
+    <section>
+      <h2 class="lang-ru">4. Регистрация на коллекторе</h2>
+      <h2 class="lang-en">4. Register on the collector</h2>
+      <ol class="lang-ru">
+        <li>Откройте <a href="/register">/register</a> на коллекторе (например <code>http://127.0.0.1:8000/register</code>).</li>
+        <li>Вставьте <strong>Telegram chat id</strong> без лишних пробелов (формула нормализации уберёт пробелы внутри числа).</li>
+        <li>Сохраните <code>project_id</code> и API-ключ для SDK.</li>
+      </ol>
+      <ol class="lang-en">
+        <li>Open <a href="/register">/register</a> on your collector host.</li>
+        <li>Paste the <strong>Telegram chat id</strong> (spaces inside the number are stripped).</li>
+        <li>Save <code>project_id</code> and the API key for the SDK.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 class="lang-ru">5. Команды и кнопки в чате</h2>
+      <h2 class="lang-en">5. Commands and buttons in chat</h2>
+      <p class="lang-ru">В <strong>этом же</strong> чате бот понимает проект и отвечает на:</p>
+      <p class="lang-en">In <strong>that same</strong> chat the bot resolves the project and handles:</p>
+      <ul class="lang-ru">
+        <li><code>/stats</code> — сводка за 7 дней;</li>
+        <li><code>/report</code> — Excel за 7 дней;</li>
+        <li><code>/task &lt;uuid&gt;</code> — карточка задачи;</li>
+        <li>кнопки под алертами — «Взять в работу», «Решена».</li>
+      </ul>
+      <ul class="lang-en">
+        <li><code>/stats</code> — 7-day summary;</li>
+        <li><code>/report</code> — Excel for 7 days;</li>
+        <li><code>/task &lt;uuid&gt;</code> — task card;</li>
+        <li>inline buttons on alerts — acknowledge / resolve.</li>
+      </ul>
+      <p class="note lang-ru">В личных сообщениях боту команды <code>/stats</code> и <code>/report</code> не привязаны к проекту — используйте группу с алертами.</p>
+      <p class="note lang-en"><code>/stats</code> and <code>/report</code> do not work in private chat — use the project group.</p>
+    </section>
+
+    <section>
+      <h2 class="lang-ru">Если алерты не приходят</h2>
+      <h2 class="lang-en">If alerts do not arrive</h2>
+      <ul class="lang-ru">
+        <li><code>telegram_chat_id</code> в БД должен совпадать с id группы (частая ошибка — другой чат или лишний пробел).</li>
+        <li>Токен в <code>.env</code> — от <strong>того же</strong> бота, который добавлен в группу.</li>
+        <li>Коллектор и SDK: <code>MONITOR_URL</code> должен указывать на FastAPI-коллектор, а не на другое приложение на том же порту.</li>
+        <li>Смотрите логи контейнеров <code>worker</code> и <code>bot</code>.</li>
+      </ul>
+      <ul class="lang-en">
+        <li><code>telegram_chat_id</code> must match the group id.</li>
+        <li>The token must be for the <strong>same</strong> bot that is in the group.</li>
+        <li><code>MONITOR_URL</code> must point to the collector API.</li>
+        <li>Check <code>worker</code> and <code>bot</code> logs.</li>
+      </ul>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      var KEY = "em_telegram_guide_lang";
+      function apply(lang) {
+        document.documentElement.setAttribute("data-tg-lang", lang);
+        document.getElementById("btn-ru").setAttribute("aria-pressed", lang === "ru" ? "true" : "false");
+        document.getElementById("btn-en").setAttribute("aria-pressed", lang === "en" ? "true" : "false");
+        try { localStorage.setItem(KEY, lang); } catch (e) {}
+      }
+      var saved = (function () { try { return localStorage.getItem(KEY); } catch (e) { return null; } })();
+      if (saved === "en" || saved === "ru") apply(saved);
+      document.getElementById("btn-ru").onclick = function () { apply("ru"); };
+      document.getElementById("btn-en").onclick = function () { apply("en"); };
+    })();
+  </script>
+</body>
+</html>

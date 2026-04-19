@@ -16,8 +16,8 @@ let monitorReady = false;
 try {
   MonitorSdk.initMonitor({
     endpoint: (import.meta.env.VITE_MONITOR_URL || 'http://127.0.0.1:8000').replace(/\/$/, ''),
-    projectId: import.meta.env.VITE_MONITOR_PROJECT_ID || '00000000-0000-4000-8000-000000000001',
-    apiKey: (import.meta.env.VITE_MONITOR_API_KEY || '').trim(),
+    projectId: "edb9ac0b-c0a5-45ee-829d-91ed250d4cd3",
+    apiKey: "pLD-lQWqPiPQfIvDUNLNE_2ohTCgfIjzDPUSZHPLrLY",
     debug: true,
   });
   monitorReady = true;
