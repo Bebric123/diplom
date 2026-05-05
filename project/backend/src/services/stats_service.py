@@ -269,8 +269,14 @@ def build_excel_report(
     return buf.getvalue()
 
 
-def send_excel_to_telegram(xlsx_bytes: bytes, caption: str, filename: str) -> None:
-    """Отправка .xlsx в общий чат (TELEGRAM_CHAT_ID в .env), если задан."""
+def send_excel_to_telegram(
+    xlsx_bytes: bytes,
+    caption: str,
+    filename: str,
+    *,
+    chat_id: Optional[str] = None,
+) -> None:
+    """Отправка .xlsx в Telegram. chat_id — явный чат; иначе TELEGRAM_CHAT_ID из .env (если задан)."""
     import logging
     import requests
 
@@ -278,12 +284,13 @@ def send_excel_to_telegram(xlsx_bytes: bytes, caption: str, filename: str) -> No
 
     logger = logging.getLogger(__name__)
     s = get_settings()
-    if not s.telegram_chat_id or not str(s.telegram_chat_id).strip():
-        logger.warning("TELEGRAM_CHAT_ID не задан — отправка Excel отчёта пропущена")
+    tid = (chat_id or s.telegram_chat_id or "").strip()
+    if not tid:
+        logger.warning("Нет chat_id для отправки Excel — пропуск")
         return
     url = f"https://api.telegram.org/bot{s.telegram_bot_token}/sendDocument"
     files = {"document": (filename, xlsx_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
-    tid = str(s.telegram_chat_id).strip().replace(" ", "")
+    tid = tid.replace(" ", "")
     if tid.startswith("-") and tid[1:].isdigit():
         chat_id_val = int(tid)
     elif tid.isdigit():

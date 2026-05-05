@@ -84,24 +84,41 @@ if settings.trusted_hosts_list():
         allowed_hosts=settings.trusted_hosts_list(),
     )
 
-_cors = settings.cors_origins_list()
-if _cors:
-    if _cors == ["*"]:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=False,
-            allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["Authorization", "Content-Type", "X-Api-Key"],
-        )
-    else:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=_cors,
-            allow_credentials=True,
-            allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["Authorization", "Content-Type", "X-Api-Key"],
-        )
+# Пустой CORS → браузерный не шлёт Access-Control-*, preflight OPTIONS на /track даёт 405.
+# По умолчанию разрешаем * (для Vite/локалки), в проде задайте CORS_ALLOW_ORIGINS явно.
+_cors = settings.cors_origins_list() or ["*"]
+if _cors == ["*"] and not settings.cors_origins_list():
+    logger.info(
+        "CORS: CORS_ALLOW_ORIGINS не задан — разрешён origin * (только удобство для dev/SDK; в проде укажите домены).",
+    )
+if _cors == ["*"]:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS", "PUT", "DELETE", "PATCH", "HEAD"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Api-Key",
+            "X-Request-Id",
+            "X-Monitor-Client",
+        ],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS", "PUT", "DELETE", "PATCH", "HEAD"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Api-Key",
+            "X-Request-Id",
+            "X-Monitor-Client",
+        ],
+    )
 
 
 @app.middleware("http")

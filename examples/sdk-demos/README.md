@@ -9,6 +9,10 @@ cd diplom
 
 Демо в каталоге **`examples/sdk-demos/`**; SDK — **`project/sdk-python`**, **`project/sdk-js`**, **`project/sdk-php`**. Обзор всего проекта: [корневой README](../../README.md).
 
+**Шпаргалка команд (Docker, тесты, сброс БД, демо по языкам):** [корневой README](../../README.md) (раздел *Обслуживание, тесты, логи*) и команды ниже в блоках Python, Node.js, PHP, браузер, фронтенд.
+
+**Git:** в `examples/sdk-demos/.gitignore` перечислены типичные артефакты (`.env`, venv, `node_modules`, `dist` у Vite, SQLite у Django); локальные секреты не коммитить.
+
 ---
 
 Коллектор (FastAPI) по умолчанию: `http://127.0.0.1:8000`. Запустите стек (`docker compose` в `project/docker`, см. [project/docker/README.md](../../project/docker/README.md)).
@@ -100,8 +104,11 @@ node 04_upload_log.cjs   # sendLogFile() из JS SDK → /logs/upload
 
 Нужны PHP ≥ 8.1 и расширения `curl`, `json`. SDK подключается как path-зависимость на `project/sdk-php`; Slim — только для `03_slim_demo.php`.
 
+Скрипты читают **`MONITOR_URL` / `MONITOR_PROJECT_ID` / `MONITOR_API_KEY`** (переменные среды или `php/.env` через `bootstrap_local_env.php`). В `.env` допустимы имена с префиксом **`VITE_`**, как у React — они подхватываются как `MONITOR_*`. Значения по умолчанию: проект `00000000-0000-4000-8000-000000000001` и ключ `dev-demo-ingest-key` из [seed_collector_security.sql](../../project/backend/db/seed_collector_security.sql) (нужен сид в БД; иначе укажите `project_id` с `/register` и тот же ключ, что в UI). Ошибки HTTP (401, 404) SDK пишет в **`error_log`** (в CLI обычно в консоль) — «отправлено в очередь» в скрипте **не** означает успех коллектора, пока `POST /track` не вернул 2xx.
+
 ```bash
 cd examples/sdk-demos/php
+cp .env.example .env   # при необходимости
 composer install
 php 01_minimal.php
 php -S 127.0.0.1:8015 02_builtin_server.php   # /health, /ok, /boom
@@ -138,7 +145,7 @@ cd examples/sdk-demos/frontend/vue-vite   && npm install && npm run dev   # по
 
 Подробности, `.env` с префиксом `VITE_`, CORS и заглушки `os` / `setImmediate`: **[frontend/README.md](frontend/README.md)**.
 
-Интеграция `integrations/browser.js` в демо подключается после `initMonitor`; пакет SDK по-прежнему CommonJS — в коде демо используется `import * as MonitorSdk from 'error-monitor-sdk'`.
+Интеграция `error-monitor-sdk/integrations/browser` (ESM, `browser.mjs`) в демо подключается после `initMonitor`; корень SDK — CommonJS, в демо — `import * as MonitorSdk from 'error-monitor-sdk'`.
 
 ## Новые интеграции в SDK
 

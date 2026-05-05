@@ -7,9 +7,12 @@
   set MONITOR_HOST=http://127.0.0.1:8000
   set LOADTEST_PROJECT_ID=<uuid существующего проекта>
   set LOADTEST_API_KEY=<ключ, если COLLECTOR_REQUIRE_API_KEY=true>
-  locust -f tests/load/locustfile.py
+  locust -f tests/load/locustfile.py --web-host 127.0.0.1
 
-Веб-UI: http://localhost:8089
+Веб-UI: http://127.0.0.1:8089
+  На Windows, если в netstat только «[::]:8089 LISTENING» без 127.0.0.1, браузер
+  на 127.0.0.1 не подключится — укажите --web-host 127.0.0.1 (см. выше) либо откройте
+  http://[::1]:8089
 """
 from __future__ import annotations
 

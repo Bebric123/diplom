@@ -108,7 +108,8 @@ final class Client
         $payload = [
             'project_id' => $this->projectId,
             'action' => $action,
-            'timestamp' => gmdate('c') . 'Z',
+            // Только Z (UTC), без +00:00+Z — иначе PostgreSQL: invalid input for timestamptz
+            'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
             'context' => $contextBlock,
             'meta' => $meta,
         ];
@@ -151,6 +152,22 @@ final class Client
         );
     }
 
+    private static function _curlHostIsLoopback(string $hostWithPossibleBrackets): bool
+    {
+        $h = strtolower(trim($hostWithPossibleBrackets, '[]'));
+        if ($h === 'localhost' || $h === '::1') {
+            return true;
+        }
+        if (str_starts_with($h, '127.')) {
+            return true;
+        }
+        if ($h === '0.0.0.0') {
+            return true;
+        }
+
+        return false;
+    }
+
     private static function postJsonSync(string $url, string $json, ?string $apiKey): void
     {
         if (! function_exists('curl_init')) {
@@ -175,7 +192,23 @@ final class Client
             CURLOPT_TIMEOUT => str_contains($url, '/logs/upload') ? 30 : 5,
             CURLOPT_CONNECTTIMEOUT => 2,
         ]);
-        curl_exec($ch);
+        // Пустой system HTTP(S)_PROXY ломает запросы к loopback: прокси отвечает 503 с пустым body.
+        $h = (string) (parse_url($url, PHP_URL_HOST) ?: '');
+        if ($h !== '' && self::_curlHostIsLoopback($h)) {
+            curl_setopt($ch, CURLOPT_PROXY, '');
+        }
+        $body = curl_exec($ch);
+        $errno = curl_errno($ch);
+        $cerr = $errno ? (string) curl_error($ch) : '';
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
+        if ($errno !== 0) {
+            error_log("ErrorMonitor SDK: cURL #{$errno} {$cerr} → {$url}");
+            return;
+        }
+        if ($code < 200 || $code >= 300) {
+            $snippet = is_string($body) ? (function_exists('mb_substr') ? mb_substr($body, 0, 500) : substr($body, 0, 500)) : '';
+            error_log("ErrorMonitor SDK: HTTP {$code} for {$url} body: {$snippet}");
+        }
     }
 }

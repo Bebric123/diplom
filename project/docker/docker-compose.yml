@@ -40,6 +40,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
+    # Как у backend: запросы к LLM / Open WebUI на Windows-хосте (host.docker.internal)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       redis:
         condition: service_healthy

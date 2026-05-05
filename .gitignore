@@ -1,0 +1,72 @@
+# Монорепозиторий: общие правила. Детали в project/.gitignore, examples/sdk-demos/*/.gitignore
+
+# ОС
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Редакторы / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python (любой каталог)
+**/__pycache__/
+**/*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+*.egg-info/
+.eggs/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+wheels/
+pip-wheel-metadata/
+*.egg
+MANIFEST
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+*,cover
+.pyre/
+
+# Node / npm
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Логи
+*.log
+
+# Секреты (шаблоны .env.example коммитим)
+.env
+.env.local
+.env.*.local
+
+# Локальные данные / артефакты
+data/
+*.sqlite3
+*.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints

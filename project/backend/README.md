@@ -46,7 +46,7 @@ celery -A src.workers.celery_app.celery_app beat --loglevel=info
 python -m src.services.telegram_bot
 ```
 
-**Beat** по расписанию: еженедельный отчёт (понедельник 08:00 UTC), ежедневная очистка старых данных (03:20 UTC).
+**Beat** (всё в `.env`, см. `config.py` и `docker/.env.example`): периодический отчёт по проектам с `telegram_chat_id` (режим `interval` или `cron`, UTC), ежедневная очистка по `DATA_RETENTION_CRON_*`.
 
 ## Анализ ошибок для Telegram (Open WebUI)
 

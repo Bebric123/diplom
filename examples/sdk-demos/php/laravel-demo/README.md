@@ -95,6 +95,20 @@ Route::get('/boom', function () {
 php artisan serve --host=127.0.0.1 --port=8017
 ```
 
+**Windows, кириллица в `C:\Users\…\` (например `C:\Users\Андрей\...`):** встроенный `php` при `artisan serve` передаёт **абсолютный** путь к роутеру в дочерний процесс, из‑за чего путь к `server.php` часто **ломается** (*Failed opening required* и «кракозябры» вместо имени пользователя).
+
+1. В **корень** Laravel по-прежнему кладут `server.php` (тот же смысл, что `vendor/laravel/.../resources/server.php`); в репо есть готовый `laravel-monitor-demo/server.php`.  
+2. **Не** используйте `php artisan serve` на такой системе; запускайте сервер так, чтобы роутер был **с относительным путём** (только `.\` и `..`, без букв из имени профиля):
+
+   ```powershell
+   cd public
+   php -S 127.0.0.1:8017 "..\server.php"
+   ```
+
+   либо из корня проекта: **`.\serve-dev.ps1`** (см. `laravel-monitor-demo/serve-dev.ps1` — `Set-Location public`, затем `php -S` с `..\server.php`).
+
+3. Без обхода: **junction / subst** диска на латинский путь, или **клон/копия проекта** в каталог вроде `C:\dev\...`.
+
 Откройте `http://127.0.0.1:8017/boom` — событие должно уйти на коллектор (и далее в очередь/Telegram по настройкам проекта).
 
 ## Зачем не один файл, как Slim?

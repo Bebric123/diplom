@@ -18,3 +18,7 @@ PHP SDK для коллектора Error Monitor: `init_monitor`, `track_event`
 ## Документация
 
 `/docs/sdk` на коллекторе; демо: `examples/sdk-demos/php/`, Laravel — `examples/sdk-demos/php/laravel-demo/README.md`.
+
+## Клиент и прокси (Windows)
+
+Если `MONITOR_URL` указывает на **127.0.0.1** / **localhost**, для cURL в SDK **отключается** использование системного `HTTP(S)_PROXY` (иначе запросы к коллектору на loopback уходят в корпоративный прокси и вы получаете **503** с пустым телом). Для URL вне loopback (удалённый хост) поведение не меняется.

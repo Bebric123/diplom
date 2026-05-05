@@ -9,8 +9,11 @@ const dir = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [react()],
   resolve: {
+    // Условие browser → index.browser.mjs (ESM) вместо index.js (require)
+    conditions: ['browser', 'module', 'import', 'default'],
     // Иначе SDK подтянет второй экземпляр React → белый экран / Invalid hook call
-    dedupe: ['react', 'react-dom'],
+    // Один экземпляр SDK — иначе initMonitor() в main и getClient() в integrations/browser.mjs рассинхрон
+    dedupe: ['react', 'react-dom', 'error-monitor-sdk'],
     alias: {
       // SDK тянет Node-модуль `os` — в браузере подменяем заглушкой
       os: path.join(dir, 'src/shims/os.cjs'),

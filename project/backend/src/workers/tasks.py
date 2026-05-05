@@ -92,15 +92,35 @@ def normalize_criticality(criticality_str: str) -> str:
     criticality_map = {
         "не требует внимания": "не требует внимания",
         "не требует": "не требует внимания",
+        "не критично": "не требует внимания",
         "ignore": "не требует внимания",
+        "можно не исправлять": "можно не исправлять",
         "требует внимания": "требует внимания",
         "требует": "требует внимания",
         "attention": "требует внимания",
+        "блокирует функционал": "блокирует функционал",
+        "авария": "авария",
         "критично": "критично",
         "критическая": "критично",
         "critical": "критично",
     }
     return criticality_map.get(criticality, "требует внимания")
+
+
+def _event_time_utc(ev: Event) -> datetime:
+    """Время события для сравнения с resolved_at (очередь vs повторение после «решёной»)."""
+    t = ev.timestamp or ev.created_at
+    if t is None:
+        return datetime.now(timezone.utc)
+    if t.tzinfo is None:
+        return t.replace(tzinfo=timezone.utc)
+    return t
+
+
+def _dt_aware_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 @shared_task(bind=True, max_retries=3)
@@ -157,37 +177,29 @@ def process_event(self, event_id: str):
                 "browser_family": event.context.browser_family or "unknown",
             }
 
+        # Для анализатора (LLM): сливаем meta с отдельной таблицей event_errors, чтобы
+        # file/line/stack гарантированно попадали, даже если в JSONB что-то обрезано.
+        meta: dict = dict(event.metadata_ or {})
+        if event.error:
+            if event.error.error_message:
+                meta.setdefault("error_message", event.error.error_message)
+            if event.error.error_stack:
+                meta.setdefault("error_stack", event.error.error_stack)
+                meta.setdefault("stack_trace", event.error.error_stack)
+            if event.error.error_file is not None:
+                meta.setdefault("error_file", event.error.error_file)
+            if event.error.error_line is not None:
+                meta.setdefault("error_line", event.error.error_line)
+            if event.error.error_column is not None:
+                meta.setdefault("error_column", event.error.error_column)
+
         payload = {
             "project_id": str(event.project_id),
             "action": event.action,
             "page_url": page_url,
             "context": context_data,
-            "meta": event.metadata_ or {},
+            "meta": meta,
         }
-
-        result = analyze_error(payload)
-
-        severity_str = normalize_severity(result.get("severity", "средняя"))
-        criticality_str = normalize_criticality(result.get("criticality", "требует внимания"))
-        analysis_block = {
-            "severity": severity_str,
-            "criticality": criticality_str,
-            "recommendation": result.get("recommendation", ""),
-        }
-
-        severity_id = SEVERITY_MAP.get(severity_str)
-        criticality_id = CRITICALITY_MAP.get(criticality_str)
-
-        if not severity_id:
-            logger.warning("Unknown severity: %s, using default", severity_str)
-            severity_id = SEVERITY_MAP.get("средняя")
-
-        if not criticality_id:
-            logger.warning("Unknown criticality: %s, using default", criticality_str)
-            criticality_id = CRITICALITY_MAP.get("требует внимания")
-
-        platform_name = context_data["platform"]
-        platform_id = get_or_create_platform(db, platform_name)
 
         stack = ""
         if event.error and event.error.error_stack:
@@ -213,8 +225,55 @@ def process_event(self, event_id: str):
             )
         ).first()
 
+        if error_group and error_group.is_resolved:
+            rt = error_group.resolved_at
+            et = _event_time_utc(event)
+            if rt and et <= _dt_aware_utc(rt):
+                event.error_group_id = error_group.id
+                event.is_classified = True
+                db.commit()
+                logger.info(
+                    "Event %s: пропущено — копыта очереди для уже решённой группы %s (без LLM/уведомлений)",
+                    event_id,
+                    error_group.id,
+                )
+                return
+            if not rt or et > _dt_aware_utc(rt):
+                error_group.is_resolved = False
+                error_group.resolved_at = None
+                db.flush()
+                logger.info(
+                    "Reopened error group %s: новое событие после «решёной»",
+                    error_group.id,
+                )
+
+        result = analyze_error(payload)
+
+        severity_str = normalize_severity(result.get("severity", "средняя"))
+        criticality_str = normalize_criticality(result.get("criticality", "требует внимания"))
+        # null в JSON: .get("recommendation", "") даёт None, а не default — для Telegram/БД всегда строка
+        recommendation = str(result.get("recommendation") or "")
+        analysis_block = {
+            "severity": severity_str,
+            "criticality": criticality_str,
+            "recommendation": recommendation,
+        }
+
+        severity_id = SEVERITY_MAP.get(severity_str)
+        criticality_id = CRITICALITY_MAP.get(criticality_str)
+
+        if not severity_id:
+            logger.warning("Unknown severity: %s, using default", severity_str)
+            severity_id = SEVERITY_MAP.get("средняя")
+
+        if not criticality_id:
+            logger.warning("Unknown criticality: %s, using default", criticality_str)
+            criticality_id = CRITICALITY_MAP.get("требует внимания")
+
+        platform_name = context_data["platform"]
+        platform_id = get_or_create_platform(db, platform_name)
+
         title = error_message[:100]
-        recommendation = result.get("recommendation", "")
 
         if not error_group:
             error_group = ErrorGroup(
@@ -444,7 +503,7 @@ def process_log_file(self, log_id: str):
                             "criticality": normalize_criticality(
                                 log_ai.get("criticality", "требует внимания")
                             ),
-                            "recommendation": log_ai.get("recommendation", ""),
+                            "recommendation": str(log_ai.get("recommendation") or ""),
                         }
                         meta = dict(payload.get("meta") or {})
                         ev = Event(
@@ -565,7 +624,7 @@ def purge_old_monitoring_data():
 
 @shared_task
 def send_weekly_stats_report():
-    """Еженедельный отчёт: метрики + Excel в Telegram."""
+    """По расписанию beat: по каждому проекту с telegram_chat_id — отчёт за stats_report_range_days в чат проекта."""
     from src.services.stats_service import (
         aggregate_metrics,
         build_excel_report,
@@ -578,23 +637,35 @@ def send_weekly_stats_report():
         logger.info("Weekly report disabled via settings")
         return
 
-    start, end = default_range_days(7)
+    start, end = default_range_days(s.stats_report_range_days)
     db = SessionLocal()
     try:
-        metrics = aggregate_metrics(db, start, end, None)
-        blob = build_excel_report(db, start, end, None)
+        projects = (
+            db.query(Project)
+            .filter(Project.is_active.is_(True), Project.telegram_chat_id.isnot(None))
+            .all()
+        )
+        to_send: list[Project] = [p for p in projects if (p.telegram_chat_id or "").strip()]
+        if not to_send:
+            logger.info("Weekly report: нет проектов с непустым telegram_chat_id — пропуск")
+            return
+        for p in to_send:
+            metrics = aggregate_metrics(db, start, end, p.id)
+            plabel = (p.name or "").strip() or str(p.id)
+            blob = build_excel_report(db, start, end, p.id, project_label=plabel)
+            cap = (
+                f"📑 Отчёт: {plabel}\n"
+                f"Период: {start.date()} — {end.date()}\n"
+                f"Событий с ошибкой: {metrics['events_with_errors']}\n"
+                f"Задач: создано {metrics['tasks_created']}, решено {metrics['tasks_resolved']}"
+            )
+            fname = f"weekly_{p.id}_{start.date()}_{end.date()}.xlsx"
+            try:
+                send_excel_to_telegram(blob, cap, fname, chat_id=p.telegram_chat_id)
+                logger.info("Weekly stats report sent for project %s (%s)", p.id, plabel)
+            except Exception as e:
+                logger.error(
+                    "Weekly report for project %s failed: %s", p.id, e, exc_info=True
+                )
     finally:
         db.close()
-
-    cap = (
-        f"📑 Еженедельный отчёт {start.date()} — {end.date()}\n"
-        f"Событий с ошибкой: {metrics['events_with_errors']}\n"
-        f"Задач: создано {metrics['tasks_created']}, решено {metrics['tasks_resolved']}"
-    )
-    fname = f"weekly_{start.date()}_{end.date()}.xlsx"
-    try:
-        send_excel_to_telegram(blob, cap, fname)
-        logger.info("Weekly stats report sent to Telegram")
-    except Exception as e:
-        logger.error("Weekly report Telegram send failed: %s", e, exc_info=True)
-        raise

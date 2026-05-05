@@ -11,6 +11,44 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# Для response_format type=json_schema (бэкенды, где json_object не поддержан)
+_INCIDENT_JSON_SCHEMA: dict[str, Any] = {
+    "name": "incident_classification",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "severity": {
+                "type": "string",
+                "description": "Незначительно, низкая, средняя, высокая, критическая",
+            },
+            "criticality": {
+                "type": "string",
+                "description": "Критичность для продукта",
+            },
+            "recommendation": {"type": "string", "description": "Короткий совет"},
+        },
+        "required": ["severity", "criticality", "recommendation"],
+        "additionalProperties": False,
+    },
+}
+
+
+def _apply_response_format(body: dict[str, Any], mode: str) -> None:
+    m = (mode or "off").strip().lower()
+    if m in ("", "off", "none", "false", "0"):
+        return
+    if m == "json_object":
+        body["response_format"] = {"type": "json_object"}
+        return
+    if m in ("json_schema", "schema", "structured"):
+        body["response_format"] = {
+            "type": "json_schema",
+            "json_schema": _INCIDENT_JSON_SCHEMA,
+        }
+        return
+    logger.warning("open_webui: неизвестный response_format=%r — без response_format", mode)
+
 
 def chat_completion(
     *,
@@ -21,7 +59,7 @@ def chat_completion(
     messages: list[dict[str, str]],
     max_tokens: int = 512,
     temperature: float = 0.05,
-    request_json_object: bool = True,
+    response_format: str = "off",
     timeout_sec: float = 180.0,
 ) -> str:
     """
@@ -44,8 +82,7 @@ def chat_completion(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
-    if request_json_object:
-        body["response_format"] = {"type": "json_object"}
+    _apply_response_format(body, response_format)
 
     logger.debug("Open WebUI POST %s model=%s", url, model)
     resp = requests.post(url, json=body, headers=headers, timeout=timeout_sec)
@@ -67,7 +104,17 @@ def chat_completion(
     text = (msg.get("content") or "").strip()
     if not text and choices[0].get("text"):
         text = str(choices[0]["text"]).strip()
+    # Qwen-思考 / o1-стиль: весь ответ в reasoning_content, content пустой
     if not text:
-        raise ValueError("Open WebUI: нет текста в ответе")
-    print("Я работаююююююююю!!!!!!!!!!!!!!!!!!!")
+        for key in ("reasoning_content", "reasoning", "reasoningText"):
+            alt = msg.get(key)
+            if alt:
+                text = str(alt).strip()
+                if text:
+                    logger.info(
+                        "Open WebUI: пустой content, используем %s (%s симв.)", key, len(text)
+                    )
+                break
+    if not text:
+        raise ValueError("Open WebUI: нет текста в ответе (и content, и reasoning пусто)")
     return text

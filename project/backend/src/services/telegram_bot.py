@@ -14,8 +14,9 @@ from aiogram.types import (
 )
 from sqlalchemy import func
 
+from src.core.config import get_settings
 from src.core.database import SessionLocal
-from src.core.models import ErrorTask
+from src.core.models import ErrorGroup, ErrorTask
 from src.services.notifier import update_telegram_message
 from src.services.stats_service import aggregate_metrics, build_excel_report, default_range_days
 from src.services.telegram_chat_project import is_group_like_chat, project_for_telegram_chat
@@ -27,15 +28,17 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
-HELP_HTML = (
-    "<b>Команды бота</b>\n\n"
-    "/start — приветствие и кнопки\n"
-    "/help — эта справка\n"
-    "/stats — сводка по проекту (только в чате, указанном при /register)\n"
-    "/report — Excel за 7 дней (там же)\n"
-    "/task &lt;uuid&gt; — карточка задачи\n\n"
-    "Под сообщениями об ошибках — кнопки «Взять в работу» / «Решена»."
-)
+def _help_html() -> str:
+    d = get_settings().stats_report_range_days
+    return (
+        "<b>Команды бота</b>\n\n"
+        "/start — приветствие и кнопки\n"
+        "/help — эта справка\n"
+        "/stats — сводка по проекту (только в чате, указанном при /register)\n"
+        f"/report — Excel за последние {d} дн. (там же)\n"
+        "/task &lt;uuid&gt; — карточка задачи\n\n"
+        "Под сообщениями об ошибках — кнопки «Взять в работу» / «Решена»."
+    )
 
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -53,11 +56,12 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
 
 async def setup_bot_commands(bot: Bot) -> None:
     """Меню команд (подсказка в Telegram рядом со скрепкой)."""
+    d = get_settings().stats_report_range_days
     commands = [
         BotCommand(command="start", description="Начало и кнопки"),
         BotCommand(command="help", description="Справка по командам"),
         BotCommand(command="stats", description="Сводка по проекту (в чате проекта)"),
-        BotCommand(command="report", description="Excel за 7 дней"),
+        BotCommand(command="report", description=f"Excel за {d} дн."),
         BotCommand(command="task", description="Задача по UUID"),
     ]
     await bot.set_my_commands(commands)
@@ -206,6 +210,10 @@ async def process_callback(callback_query: types.CallbackQuery):
             task.resolved_at = datetime.now(timezone.utc)
             task.resolved_by_telegram_user_id = user.id
             task.resolved_by_label = _telegram_user_label(user)
+            grp = db.get(ErrorGroup, task.error_group_id)
+            if grp is not None:
+                grp.is_resolved = True
+                grp.resolved_at = task.resolved_at
             db.commit()
 
             await _safe_callback_answer(
@@ -263,7 +271,8 @@ def _format_project_stats_lines(db, proj) -> list[str]:
             return "—"
         return f"{float(sec_val) / 60.0:.1f} мин"
 
-    start, end = default_range_days(7)
+    rd = get_settings().stats_report_range_days
+    start, end = default_range_days(rd)
     m = aggregate_metrics(db, start, end, pid)
 
     lines = [
@@ -274,7 +283,7 @@ def _format_project_stats_lines(db, proj) -> list[str]:
         f"📌 Всего: {total} | ✅ решено: {resolved} | 🔄 в работе: {in_progress} | ⏳ ждут: {waiting}",
         f"⏱️ Время решения (все решённые): min {fmt_minutes(rmin)} | max {fmt_minutes(rmax)} | ср. {fmt_minutes(ravg)}",
         "",
-        f"<b>За 7 дней</b> ({start.date()} — {end.date()})",
+        f"<b>За последние {rd} дн.</b> ({start.date()} — {end.date()})",
         f"Событий с ошибкой: {m['events_with_errors']}",
         f"Задач создано: {m['tasks_created']} | решено: {m['tasks_resolved']}",
     ]
@@ -284,7 +293,9 @@ def _format_project_stats_lines(db, proj) -> list[str]:
             f"⏱️ Решение (задачи за период): min {fmt_minutes(rts['min'])} | max {fmt_minutes(rts['max'])} | ср. {fmt_minutes(rts['avg'])}"
         )
     else:
-        lines.append("⏱️ Решение (задачи за период): нет решённых задач в выбранные 7 дней")
+        lines.append(
+            f"⏱️ Решение (задачи за период): нет решённых задач за последние {rd} дн."
+        )
     if m["top_domains"][:3]:
         doms = ", ".join(f"{d['domain']}: {d['count']}" for d in m["top_domains"][:3])
         lines.append(f"🌍 Чаще по доменам: {doms}")
@@ -306,7 +317,9 @@ async def menu_callback(callback_query: types.CallbackQuery):
     if data == "menu_help":
         await _safe_callback_answer(callback_query, "Открыта справка")
         if callback_query.message:
-            await callback_query.message.answer(HELP_HTML, parse_mode="HTML", reply_markup=main_menu_keyboard())
+            await callback_query.message.answer(
+                _help_html(), parse_mode="HTML", reply_markup=main_menu_keyboard()
+            )
         return
 
     if not chat:
@@ -332,7 +345,7 @@ async def menu_callback(callback_query: types.CallbackQuery):
 
         if data == "menu_report":
             await _safe_callback_answer(callback_query, "Формирую файл…")
-            start, end = default_range_days(7)
+            start, end = default_range_days(get_settings().stats_report_range_days)
             label = f"{proj.name} ({proj.id})"
             blob = build_excel_report(db, start, end, proj.id, project_label=label)
             cap = f"«{proj.name}» — {start.date()} — {end.date()}"
@@ -360,7 +373,7 @@ async def cmd_start(message: types.Message):
         "• Кнопки для управления задачами\n\n"
         "🆔 <b>ID задач</b> будут отображаться в формате: <code>550e8400</code>\n\n"
         "Нажми на кнопку под сообщением об ошибке, чтобы начать работу или отметить задачу как решённую.\n\n"
-        "Команды в <b>чате проекта</b> (туда же, куда приходят алерты): /stats — сводка по этому проекту, /report — Excel за 7 дней.\n\n"
+        "Команды в <b>чате проекта</b> (туда же, куда приходят алерты): /stats — сводка, /report — Excel (период задаётся в настройках коллектора, см. STATS_REPORT_RANGE_DAYS).\n\n"
         "В личных сообщениях боту статистика недоступна — неизвестно, какой проект считать.\n\n"
         "Алерты уходят в Telegram-чат, указанный при регистрации на коллекторе (<code>/register</code>).\n\n"
         "<b>Кнопки ниже</b> — быстрый доступ (в чате проекта). Список команд также в меню Telegram (кнопка «Menu»).",
@@ -371,7 +384,7 @@ async def cmd_start(message: types.Message):
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
-    await message.answer(HELP_HTML, parse_mode="HTML", reply_markup=main_menu_keyboard())
+    await message.answer(_help_html(), parse_mode="HTML", reply_markup=main_menu_keyboard())
 
 @dp.message(Command("task"))
 async def cmd_task(message: types.Message):
@@ -441,7 +454,7 @@ async def cmd_task(message: types.Message):
 
 @dp.message(Command("stats"))
 async def cmd_stats(message: types.Message):
-    """Сводка за 7 дней + счётчики задач только по проекту этого чата."""
+    """Сводка за окно STATS_REPORT_RANGE_DAYS + счётчики «всё время» по проекту чата."""
     db = SessionLocal()
     try:
         chat = message.chat
@@ -468,7 +481,7 @@ async def cmd_stats(message: types.Message):
 
 @dp.message(Command("report"))
 async def cmd_report(message: types.Message):
-    """Excel-отчёт за последние 7 дней только по проекту этого чата."""
+    """Excel за STATS_REPORT_RANGE_DAYS по проекту чата."""
     chat = message.chat
     if not chat:
         await message.answer("Не удалось определить чат.")
@@ -485,7 +498,7 @@ async def cmd_report(message: types.Message):
             )
             return
 
-        start, end = default_range_days(7)
+        start, end = default_range_days(get_settings().stats_report_range_days)
         label = f"{proj.name} ({proj.id})"
         blob = build_excel_report(db, start, end, proj.id, project_label=label)
         cap = f"«{proj.name}» — {start.date()} — {end.date()}"

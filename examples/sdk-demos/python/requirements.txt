@@ -11,4 +11,6 @@ flask>=3.0
 starlette>=0.27
 quart>=0.19
 litestar[standard]>=2.0
+# Пакет с PyPI с именем «multipart» (не тот) ломает Litestar. Нужен python-multipart:
+python-multipart>=0.0.9
 django>=4.2

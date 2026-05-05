@@ -46,8 +46,9 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # ========== Docker ==========
-.dockerignore
+# .dockerignore в репозитории оставляем (учёт в контексте сборки)
 compose.override.yml
+compose.override.yaml
 
 # ========== Секреты и конфигурация ==========
 .env

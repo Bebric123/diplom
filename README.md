@@ -25,14 +25,14 @@ docker compose up -d --build
 
 ## Структура репозитория
 
-| Путь | Назначение |
-|------|------------|
-| [project/backend](project/backend/README.md) | Коллектор API, `/`, `/register`, `/docs/sdk`, `/docs/demos`, бот, воркеры |
-| [project/docker](project/docker/README.md) | `docker-compose`: backend, worker, beat, bot, Postgres, Redis; опционально бэкапы БД |
-| [project/sdk-python](project/sdk-python) | Пакет `error-monitor-sdk` (Python) |
-| [project/sdk-js](project/sdk-js) | Пакет `error-monitor-sdk` (Node.js) |
-| [project/sdk-php](project/sdk-php) | Composer-пакет для PHP |
-| [examples/sdk-demos](examples/sdk-demos/README.md) | Рабочие демо: Python, Node, PHP, React/Vite, Vue/Vite, `fetch` в браузере |
+- **[project/backend](project/backend/README.md)** — коллектор (FastAPI), `/`, `/register`, `/docs/sdk`, `/docs/demos`, Telegram-бот, Celery-воркеры.  
+- **[project/docker](project/docker/README.md)** — сборка образа и `docker-compose`: backend, worker, beat, bot, Postgres, Redis; по желанию профиль бэкапа БД.  
+- **[project/sdk-python](project/sdk-python)** — пакет `error-monitor-sdk` (Python).  
+- **[project/sdk-js](project/sdk-js)** — пакет `error-monitor-sdk` (Node.js).  
+- **[project/sdk-php](project/sdk-php)** — Composer-пакет для PHP.  
+- **[examples/sdk-demos](examples/sdk-demos/README.md)** — демо: Python, Node, PHP, React/Vite, Vue/Vite, `fetch` в браузере.
+
+**Секреты:** файлы `.env` не коммитятся (см. корневой `.gitignore` и `project/.gitignore`); для Docker копируйте `project/docker/.env.example` в `.env` и заполните переменные.
 
 Установка SDK из клона:
 
@@ -56,6 +56,19 @@ pip install "git+https://github.com/Bebric123/diplom.git#subdirectory=project/sd
 **Open WebUI:** `OPEN_WEBUI_BASE_URL`, `OPEN_WEBUI_MODEL`, отключение ИИ — `ERROR_ANALYSIS_BACKEND=none`. Подробнее — [project/backend/README.md](project/backend/README.md) и [project/docker/README.md](project/docker/README.md).
 
 **Ретенция:** `DATA_RETENTION_DAYS` (например 180 или 365), `DATA_RETENTION_ENABLED=false` — чтобы отключить фоновую очистку.
+
+## Обслуживание, тесты, логи
+
+Команды выполняйте из каталога **`project/docker`**, пока стек поднят через `docker compose`, или из **`project/backend`** для pytest и `alembic` на локальной БД.
+
+- **`docker compose ps`** — список сервисов и портов.  
+- **`docker compose logs -f backend`** / **`docker compose logs -f worker`** — логи API и Celery в реальном времени.  
+- **`docker compose down`** — остановка контейнеров (данные Postgres в именованном volume обычно сохраняются).  
+- **`docker compose down -v`** — то же, плюс удаление volume’ов из compose: **сброс данных PostgreSQL** в Docker.  
+- **`docker compose exec redis redis-cli -n 0 FLUSHDB`** — очистить Redis (брокер/результаты для этого стека).  
+- **`docker compose exec worker celery -A src.workers.celery_app.celery_app purge -f`** — очистить очередь задач Celery.  
+- **`cd project/backend` → `pytest tests/ -q`** — тесты бэкенда (интеграция — с маркером и `TEST_DATABASE_URL`, см. [project/backend/README.md](project/backend/README.md)).  
+- Подробнее по переменным Docker, бэкапу БД и сети: [project/docker/README.md](project/docker/README.md). Полный перечень демо: [examples/sdk-demos/README.md](examples/sdk-demos/README.md).  
 
 ## Лицензия и дипломный контекст
 

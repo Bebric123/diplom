@@ -66,3 +66,8 @@ docker compose exec redis redis-cli -n 0 FLUSHDB
 ```
 
 (сбрасывает брокер и результаты Celery для этого compose.)
+
+## См. также
+
+- Полный список приёмов (логи, `down -v`, pytest): [корневой README — раздел «Обслуживание, тесты, логи»](../../README.md).  
+- Демо Python / Node / PHP: [examples/sdk-demos/README.md](../../examples/sdk-demos/README.md).

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from celery import Celery
 from celery.schedules import crontab
 
@@ -11,6 +13,41 @@ celery_app = Celery(
     backend=settings.redis_url,
     include=["src.workers.tasks"]  # ← важно!
 )
+
+
+def _build_beat_schedule():
+    s = get_settings()
+    out = {}
+    if s.weekly_report_enabled:
+        if s.stats_report_beat_mode == "interval":
+            sched = timedelta(days=s.stats_report_beat_interval_days)
+        else:
+            dow = (s.stats_report_beat_cron_day_of_week or "mon").strip()
+            if dow.isdigit():
+                sched = crontab(
+                    minute=s.stats_report_beat_cron_minute,
+                    hour=s.stats_report_beat_cron_hour,
+                    day_of_week=int(dow),
+                )
+            else:
+                sched = crontab(
+                    minute=s.stats_report_beat_cron_minute,
+                    hour=s.stats_report_beat_cron_hour,
+                    day_of_week=dow,
+                )
+        out["stats-report"] = {
+            "task": "src.workers.tasks.send_weekly_stats_report",
+            "schedule": sched,
+        }
+    if s.data_retention_enabled:
+        out["purge-old-monitoring-data"] = {
+            "task": "src.workers.tasks.purge_old_monitoring_data",
+            "schedule": crontab(
+                hour=s.data_retention_cron_hour, minute=s.data_retention_cron_minute
+            ),
+        }
+    return out
+
 
 celery_app.conf.update(
     task_serializer="json",
@@ -27,16 +64,7 @@ celery_app.conf.update(
         "retry_on_timeout": True,
         "health_check_interval": 30,
     },
-    beat_schedule={
-        "weekly-stats-report": {
-            "task": "src.workers.tasks.send_weekly_stats_report",
-            "schedule": crontab(day_of_week="mon", hour=8, minute=0),
-        },
-        "purge-old-monitoring-data": {
-            "task": "src.workers.tasks.purge_old_monitoring_data",
-            "schedule": crontab(hour=3, minute=20),
-        },
-    },
+    beat_schedule=_build_beat_schedule(),
 )
 
 def get_celery_app():

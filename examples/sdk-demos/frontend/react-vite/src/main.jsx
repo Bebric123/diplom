@@ -12,31 +12,41 @@ if (!rootEl) {
   throw new Error('Нет элемента #root');
 }
 
-let monitorReady = false;
-try {
-  MonitorSdk.initMonitor({
-    endpoint: (import.meta.env.VITE_MONITOR_URL || 'http://127.0.0.1:8000').replace(/\/$/, ''),
-    projectId: "edb9ac0b-c0a5-45ee-829d-91ed250d4cd3",
-    apiKey: "pLD-lQWqPiPQfIvDUNLNE_2ohTCgfIjzDPUSZHPLrLY",
-    debug: true,
-  });
-  monitorReady = true;
+const url = (import.meta.env.VITE_MONITOR_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+const projectId = (import.meta.env.VITE_MONITOR_PROJECT_ID || '').trim();
+const apiKey = (import.meta.env.VITE_MONITOR_API_KEY || '').trim();
 
+let initError = null;
+let browserIntegWarning = null;
+
+if (!projectId) {
+  initError = new Error(
+    'В .env (рядом с package.json) задайте VITE_MONITOR_PROJECT_ID=… и перезапустите npm run dev. При COLLECTOR_REQUIRE_API_KEY — также VITE_MONITOR_API_KEY.',
+  );
+} else {
   try {
-    BrowserIntegration.enableBrowserIntegration({
-      captureGlobalErrors: true,
-      captureUnhandledRejections: true,
+    MonitorSdk.initMonitor({
+      endpoint: url,
+      projectId,
+      apiKey: apiKey || undefined,
+      debug: true,
     });
+    try {
+      BrowserIntegration.enableBrowserIntegration({
+        captureGlobalErrors: true,
+        captureUnhandledRejections: true,
+      });
+    } catch (e) {
+      browserIntegWarning = e;
+      console.warn('[demo] enableBrowserIntegration:', e);
+    }
   } catch (e) {
-    console.warn('[demo] enableBrowserIntegration:', e);
+    initError = e;
+    console.error('[demo] initMonitor failed', e);
   }
-} catch (e) {
-  console.error('[demo] initMonitor failed', e);
-  rootEl.innerHTML = `<pre style="padding:1rem;color:#b91c1c;font-family:system-ui">initMonitor: ${String(
-    e && e.message ? e.message : e,
-  )}</pre>`;
 }
 
-if (monitorReady) {
-  createRoot(rootEl).render(<App />);
-}
+const root = createRoot(rootEl);
+root.render(
+  <App initError={initError} browserIntegWarning={browserIntegWarning} />,
+);

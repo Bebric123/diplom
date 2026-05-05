@@ -55,13 +55,17 @@ def get_project_telegram_chat_id(db: Session, project_id: uuid.UUID) -> Optional
     s = str(p.telegram_chat_id).strip()
     return s or None
 
-# Троттлинг алертов по нормализованной severity (секунды между повторами для той же группы)
-THROTTLE_CONFIG = {
-    "низкая": 3600,
-    "средняя": 1800,
-    "высокая": 900,
-    "критическая": 300,
-}
+def _alert_throttle_seconds_for_severity(severity: str) -> int:
+    """Секунды между повторными пушами в одну error_group при том же severity (см. config)."""
+    s = get_settings()
+    sev = (severity or "средняя").strip().lower()
+    m = {
+        "низкая": s.alert_throttle_low_sec,
+        "средняя": s.alert_throttle_medium_sec,
+        "высокая": s.alert_throttle_high_sec,
+        "критическая": s.alert_throttle_critical_sec,
+    }
+    return m.get(sev, s.alert_throttle_default_sec)
 
 
 def get_platform_emoji(platform: str) -> str:
@@ -270,7 +274,7 @@ def should_send_notification(
 
     - Первая отправка по группе (alert_last_sent_at is None) → отправить.
     - Смена severity → отправить сразу (новый класс риска).
-    - Тот же severity и интервал < THROTTLE_CONFIG → не отправлять.
+    - Тот же severity и интервал < порог из .env (alert_throttle_*) → не отправлять.
     - 404: не слать повторно, если по группе уже есть задача (уже уведомляли).
     """
     group = db.query(ErrorGroup).filter(ErrorGroup.id == error_group_id).first()
@@ -284,7 +288,7 @@ def should_send_notification(
         return True
 
     sev = (severity or "средняя").strip().lower()
-    throttle_time = THROTTLE_CONFIG.get(sev, 1800)
+    throttle_time = _alert_throttle_seconds_for_severity(sev)
 
     if group.alert_last_sent_at is None:
         logger.info("First alert for group %s", error_group_id)
@@ -551,15 +555,23 @@ async def send_telegram_message_async(
         safe_user = re.sub(r"[^a-zA-Z0-9_-]", "_", str(event.get("meta", {}).get("user_id", "anonymous"))[:20])
         
         pre = event.get("analysis")
+        # Кэш из process_event: нужны s/c/r из LLM, без повторного вызова модели.
+        # Было: require truthy severity + recommendation is not None — при recommendation=null в JSON
+        # .get(..., "") в воркере отдаёт None, analysis ломался и analyze_error подменял степени.
         if (
             isinstance(pre, dict)
-            and pre.get("severity")
-            and pre.get("recommendation") is not None
+            and (
+                pre.get("recommendation") is not None
+                or pre.get("severity") is not None
+                or pre.get("criticality") is not None
+            )
         ):
+            sev, crit, rec = pre.get("severity"), pre.get("criticality"), pre.get("recommendation")
             analysis = {
-                "severity": pre.get("severity", "средняя"),
-                "criticality": pre.get("criticality", "требует внимания"),
-                "recommendation": pre.get("recommendation", "—"),
+                "severity": (str(sev).strip() if sev is not None else "") or "средняя",
+                "criticality": (str(crit).strip() if crit is not None else "")
+                or "требует внимания",
+                "recommendation": rec if rec is not None else "—",
             }
         else:
             analysis = analyze_error(event)

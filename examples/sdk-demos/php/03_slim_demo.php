@@ -11,6 +11,7 @@ declare(strict_types=1);
  *
  * Проверка: curl http://127.0.0.1:8016/boom
  */
+require __DIR__ . '/bootstrap_local_env.php';
 require __DIR__ . '/vendor/autoload.php';
 
 use function ErrorMonitor\capture_exception;
@@ -21,9 +22,9 @@ use Psr\Http\Message\ServerRequestInterface;
 use Slim\Factory\AppFactory;
 
 $endpoint = getenv('MONITOR_URL') ?: 'http://127.0.0.1:8000';
-$projectId = getenv('MONITOR_PROJECT_ID') ?: '07562d43-6bc3-49c3-acc1-46173c2fa8c8';
-$rawKey = "DVVrT3GxU0n40FG8BfMaHvIbOjueO1a-oirVVJOMIkQ";
-$apiKey = ($rawKey !== false && $rawKey !== '') ? $rawKey : null;
+$projectId = getenv('MONITOR_PROJECT_ID') ?: '00000000-0000-4000-8000-000000000001';
+$rawKey = getenv('MONITOR_API_KEY');
+$apiKey = $rawKey !== false && $rawKey !== null && $rawKey !== '' ? (string) $rawKey : null;
 
 init_monitor(
     $endpoint,

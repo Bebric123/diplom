@@ -2,8 +2,35 @@
 from __future__ import annotations
 
 import os
+import sys
 import uuid
+from types import ModuleType
 from unittest.mock import MagicMock
+
+# src.workers.tasks импортирует notifier → aiogram; фикстура ниже патчит tasks.
+# Без установленного пакета (pip install -r requirements/dev.txt) подставляем заглушки.
+try:
+    import aiogram  # noqa: F401
+except ModuleNotFoundError:
+
+    def _stub() -> None:
+        root = ModuleType("aiogram")
+        root.Bot = object
+        sys.modules["aiogram"] = root
+        exc = ModuleType("aiogram.exceptions")
+
+        class TelegramBadRequest(Exception):
+            pass
+
+        exc.TelegramBadRequest = TelegramBadRequest
+        sys.modules["aiogram.exceptions"] = exc
+        types_ = ModuleType("aiogram.types")
+        types_.FSInputFile = object
+        types_.InlineKeyboardButton = object
+        types_.InlineKeyboardMarkup = object
+        sys.modules["aiogram.types"] = types_
+
+    _stub()
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -13,25 +40,30 @@ from sqlalchemy.orm import sessionmaker
 pytestmark = pytest.mark.integration
 
 
-def _require_test_db():
-    if not os.environ.get("TEST_DATABASE_URL"):
-        pytest.skip(
-            "Нет TEST_DATABASE_URL. Пример: "
-            "postgresql://postgres:postgres@127.0.0.1:5432/monitoring_test"
-        )
+# def _require_test_db():
+#     if not os.environ.get("TEST_DATABASE_URL"):
+#         pytest.skip(
+#             "Нет TEST_DATABASE_URL. Пример: "
+#             "postgresql://postgres:postgres@127.0.0.1:5432/monitoring_test"
+#         )
 
 
 @pytest.fixture(scope="session")
 def engine():
-    _require_test_db()
-    url = os.environ["TEST_DATABASE_URL"]
+    # _require_test_db()
+    url = "postgresql://postgres:postgres@127.0.0.1:5432/monitoring_test"
     e = create_engine(url, pool_pre_ping=True)
     from src.core.database import Base
 
     import src.core.models  # noqa: F401 — регистрация таблиц в metadata
 
     try:
-        Base.metadata.drop_all(e)
+        # drop_all() не трогает устаревшие таблицы из старых миграций (в metadata их уже
+        # нет) — в БД тогда остаётся, например, public.notifications -> FK на events,
+        # и DROP TABLE events падает. Для пустой тестовой БД безопаснее сбросить public.
+        with e.begin() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
         Base.metadata.create_all(e)
     except (ProgrammingError, OperationalError) as exc:
         low = str(exc).lower()

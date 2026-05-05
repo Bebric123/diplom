@@ -1,6 +1,27 @@
-# Локальные секреты (шаблон — .env.example)
+# Локальные секреты (шаблоны — .env.example в подкаталогах)
 .env
 .env.local
+.env.*.local
 
-# Django MVP (локальная SQLite)
+# Python: venv и кэш в демо
+python/.venv/
+python/venv/
+python/**/__pycache__/
+python/**/*.pyc
 python/django_mvp/db.sqlite3
+
+# Node: зависимости
+nodejs/node_modules/
+
+# Фронт: сборка и кэш Vite
+frontend/react-vite/node_modules/
+frontend/react-vite/dist/
+frontend/react-vite/.env
+frontend/react-vite/.env.local
+frontend/vue-vite/node_modules/
+frontend/vue-vite/dist/
+frontend/vue-vite/.env
+frontend/vue-vite/.env.local
+
+# Браузер: если поставить зависимости локально
+browser/node_modules/

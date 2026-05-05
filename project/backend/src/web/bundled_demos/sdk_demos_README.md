@@ -138,7 +138,7 @@ cd examples/sdk-demos/frontend/vue-vite   && npm install && npm run dev   # по
 
 Подробности, `.env` с префиксом `VITE_`, CORS и заглушки `os` / `setImmediate`: **[frontend/README.md](frontend/README.md)**.
 
-Интеграция `integrations/browser.js` в демо подключается после `initMonitor`; пакет SDK по-прежнему CommonJS — в коде демо используется `import * as MonitorSdk from 'error-monitor-sdk'`.
+Интеграция `error-monitor-sdk/integrations/browser` (ESM) в демо подключается после `initMonitor`; в демо — `import * as MonitorSdk from 'error-monitor-sdk'`.
 
 ## Новые интеграции в SDK
 

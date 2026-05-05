@@ -9,6 +9,8 @@ const dir = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [vue()],
   resolve: {
+    conditions: ['browser', 'module', 'import', 'default'],
+    dedupe: ['error-monitor-sdk', 'vue'],
     alias: {
       os: path.join(dir, 'src/shims/os.cjs'),
     },

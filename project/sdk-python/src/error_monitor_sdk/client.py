@@ -4,10 +4,24 @@ import logging
 import threading
 import traceback
 from typing import Optional, Dict, Any, Callable
+from urllib.parse import urlparse
 import requests
 from datetime import datetime
 
 _logger = logging.getLogger("error_monitor_sdk")
+
+
+def _is_loopback_url(url: str) -> bool:
+    try:
+        host = (urlparse((url or "").strip()).hostname or "").lower()
+    except Exception:
+        return False
+    if host in ("127.0.0.1", "localhost", "0.0.0.0", "::1"):
+        return True
+    if host.startswith("127."):
+        return True
+    return False
+
 
 class MonitorClient:
     def __init__(self, 
@@ -31,9 +45,12 @@ class MonitorClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         self.session.headers.update(headers)
-        
+        # Windows: HTTP(S)_PROXY ломает POST на 127.0.0.1 (прокси отвечает 503 с пустым body).
+        if _is_loopback_url(self.endpoint):
+            self.session.trust_env = False
+
         _logger.info(f"MonitorClient initialized for project: {self.project_id}")
-    
+
     def send_event(self, 
                    action: str, 
                    metadata: Optional[Dict[str, Any]] = None,

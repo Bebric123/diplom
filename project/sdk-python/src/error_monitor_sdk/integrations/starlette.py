@@ -55,7 +55,9 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             client = get_client()
-            if self.capture_requests and client:
+            if not client:
+                return response
+            if self.capture_requests:
                 duration_ms = (time.time() - start_time) * 1000
                 metadata = {
                     "user_id": user_id,
@@ -67,6 +69,25 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
                 client.send_event(
                     action=f"http: {request.method} {request.url.path}",
                     metadata=metadata,
+                    page_url=str(request.url),
+                )
+            elif self.capture_errors and response.status_code >= 500:
+                # Litestar/FastAPI: исключение обработано внутри, наружу — только ответ 5xx, без
+                # re-raise → блок except выше не сработает. При capture_requests=False иначе в /track
+                # ничего не уходит (нет Telegram/очереди).
+                duration_ms = (time.time() - start_time) * 1000
+                client.send_event(
+                    action=f"http: {request.method} {request.url.path}",
+                    metadata={
+                        "user_id": user_id,
+                        "status_code": response.status_code,
+                        "duration_ms": duration_ms,
+                        "error_message": (
+                            f"HTTP {response.status_code} (фреймворк вернул ответ без проброса исключения"
+                            f" в ASGI-middleware; полного стека в событии нет)"
+                        ),
+                        **get_request_context(request, "starlette"),
+                    },
                     page_url=str(request.url),
                 )
             return response

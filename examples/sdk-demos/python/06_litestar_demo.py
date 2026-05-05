@@ -35,7 +35,7 @@ async def index() -> str:
 
 
 @get("/boom")
-async def boom():
+async def boom() -> None:
     raise RuntimeError("тестовая ошибка Litestar для SDK")
 
 

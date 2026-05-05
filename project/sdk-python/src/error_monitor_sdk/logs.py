@@ -4,7 +4,7 @@ import requests
 import logging
 import threading
 from typing import Optional, Dict, Any
-from .client import get_client
+from .client import get_client, _is_loopback_url
 
 logger = logging.getLogger("error_monitor_sdk")
 
@@ -95,6 +95,7 @@ def _send_log_sync(data: dict):
             json=data,
             headers=headers,
             timeout=10,
+            trust_env=not _is_loopback_url(client.endpoint),
         )
         if response.status_code == 200:
             logger.info(f"Log file sent successfully: {response.json().get('id', 'unknown')}")

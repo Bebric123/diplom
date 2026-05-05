@@ -4,12 +4,24 @@
   "description": "SDK для отправки ошибок и событий в систему мониторинга",
   "main": "src/error_monitor_sdk/index.js",
   "exports": {
-    ".": "./src/error_monitor_sdk/index.js",
+    ".": {
+      "browser": "./src/error_monitor_sdk/index.browser.mjs",
+      "require": "./src/error_monitor_sdk/index.js",
+      "default": "./src/error_monitor_sdk/index.js"
+    },
     "./integrations/express": "./src/error_monitor_sdk/integrations/express.js",
     "./integrations/fastify": "./src/error_monitor_sdk/integrations/fastify.js",
-    "./integrations/browser": "./src/error_monitor_sdk/integrations/browser.js",
-    "./integrations/react": "./src/error_monitor_sdk/integrations/react.js",
-    "./integrations/vue": "./src/error_monitor_sdk/integrations/vue.js",
+    "./integrations/browser": "./src/error_monitor_sdk/integrations/browser.mjs",
+    "./integrations/react": {
+      "browser": "./src/error_monitor_sdk/integrations/react.mjs",
+      "require": "./src/error_monitor_sdk/integrations/react.js",
+      "default": "./src/error_monitor_sdk/integrations/react.js"
+    },
+    "./integrations/vue": {
+      "browser": "./src/error_monitor_sdk/integrations/vue.mjs",
+      "require": "./src/error_monitor_sdk/integrations/vue.js",
+      "default": "./src/error_monitor_sdk/integrations/vue.js"
+    },
     "./logs": "./src/error_monitor_sdk/logs.js"
   },
   "scripts": {
